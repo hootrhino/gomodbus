@@ -1,5 +1,5 @@
-module github.com/wwhai/gomodbus
+module github.com/hootrhino/gomodbus
 
-go 1.17
+go 1.18
 
-require github.com/wwhai/goserial v0.2.0
+require github.com/hootrhino/goserial v0.2.1

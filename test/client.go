@@ -7,7 +7,7 @@ package test
 import (
 	"testing"
 
-	modbus "github.com/wwhai/gomodbus"
+	modbus "github.com/hootrhino/gomodbus"
 )
 
 func ClientTestReadCoils(t *testing.T, client modbus.Client) {

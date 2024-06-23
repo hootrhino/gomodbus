@@ -1,4 +1,4 @@
-System testing for [modbus library](https://github.com/wwhai/gomodbus)
+System testing for [modbus library](https://github.com/hootrhino/gomodbus)
 
 Modbus simulator
 ----------------

@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wwhai/goserial"
+	"github.com/hootrhino/goserial"
 )
 
 const (
