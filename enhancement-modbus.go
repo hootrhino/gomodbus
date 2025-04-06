@@ -89,15 +89,18 @@ func ReadGroupedData(client Client, grouped [][]DeviceRegister) [][]DeviceRegist
 
 // DecodedValue holds all possible interpretations of a raw Modbus value
 type DecodedValue struct {
-	Raw     []byte
-	Float64 float64
-	AsType  any
+	Raw     []byte  `json:"raw"`
+	Float64 float64 `json:"float64"`
+	AsType  any     `json:"asType"`
 }
 
 // DecodeValue decodes the raw value into float64 according to DataType and DataOrder
 func DecodeValue(r DeviceRegister) float64 {
 	val, _ := DecodeValueAsInterface(r)
 	return val.Float64
+}
+func (r DeviceRegister) DecodeValueAsInterface() (DecodedValue, error) {
+	return DecodeValueAsInterface(r)
 }
 
 // DecodeValueAsInterface returns the decoded result as multiple forms
@@ -141,6 +144,10 @@ func DecodeValueAsInterface(r DeviceRegister) (DecodedValue, error) {
 // reorderBytes reorders bytes according to DataOrder
 func reorderBytes(data [4]byte, order string) []byte {
 	switch order {
+	case "AB":
+		return data[:2]
+	case "BA":
+		return []byte{data[1], data[0]}
 	case "ABCD":
 		return data[:]
 	case "DCBA":

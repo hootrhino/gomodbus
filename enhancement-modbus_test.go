@@ -2,6 +2,7 @@ package modbus
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"testing"
 )
@@ -173,6 +174,71 @@ func Test_GroupDeviceRegister(t *testing.T) {
 	for i, group := range result {
 		for j, reg := range group {
 			t.Logf("======= group->%v  reg=%v  Address= %v  Tag= %v", i, j, reg.Address, reg.Tag)
+		}
+	}
+}
+
+// go test -timeout 30s -run ^Test_GroupDevice_125_Registers$ github.com/hootrhino/gomodbus -v -count=1
+func Test_GroupDevice_125_Registers(t *testing.T) {
+	// Group 1: 1-25
+	input1 := make([]DeviceRegister, 10)
+	for i := 0; i < 10; i++ {
+		input1[i].Address = uint16(i + 1)
+		input1[i].Tag = fmt.Sprintf("Tag%d", i+1)
+		input1[i].Alias = fmt.Sprintf("Alias%d", i+1)
+		input1[i].Function = 3
+		input1[i].SlaverId = 1
+		input1[i].Frequency = 1
+		input1[i].Quantity = 1
+		input1[i].DataType = "uint16"
+		input1[i].DataOrder = "ABCD"
+		input1[i].Weight = 1.0
+		input1[i].Value = [4]byte{0, 0, 0, 0}
+	}
+	input2 := make([]DeviceRegister, 10)
+	for i := 26; i < 36; i++ {
+		input2[i-26].Address = uint16(i + 1)
+		input2[i-26].Tag = fmt.Sprintf("Tag%d", i+1)
+		input2[i-26].Alias = fmt.Sprintf("Alias%d", i+1)
+		input2[i-26].Function = 3
+		input2[i-26].SlaverId = 1
+		input2[i-26].Frequency = 1
+		input2[i-26].Quantity = 1
+		input2[i-26].DataType = "uint16"
+		input2[i-26].DataOrder = "ABCD"
+		input2[i-26].Weight = 1.0
+		input2[i-26].Value = [4]byte{0, 0, 0, 0}
+	}
+
+	// Group the registers
+	handler := NewRTUClientHandler("COM3")
+	handler.BaudRate = 9600
+	handler.DataBits = 8
+	handler.Parity = "N"
+	handler.StopBits = 1
+	handler.SlaveId = 1
+	handler.Logger = NewSimpleLogger(os.Stdout, LevelDebug)
+
+	err := handler.Connect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer handler.Close()
+	client := NewClient(handler)
+	defer client.GetTransporter().Close()
+	testGroup(t, client, input1)
+	testGroup(t, client, input2)
+}
+func testGroup(t *testing.T, client Client, input []DeviceRegister) {
+	result := client.ReadGroupedRegisterValue(input)
+	for i, group := range result {
+		for j, reg := range group {
+			decodeValue, err := reg.DecodeValueAsInterface()
+			if err != nil {
+				t.Errorf("Error decoding value: %v", err)
+			}
+			t.Logf("== Group[%v]\nIndex= %v\nAddress= %v\nTag= %v\nValue = %v\nDataType= %v\nDataOrder= %v\ndecodeValue= %v\n",
+				i, j, reg.Address, reg.Tag, reg.Value, reg.DataType, reg.DataOrder, decodeValue.Float64)
 		}
 	}
 }
