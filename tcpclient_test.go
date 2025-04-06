@@ -40,7 +40,7 @@ func TestTCPDecoding(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if 3 != pdu.FunctionCode {
+	if pdu.FunctionCode != 3 {
 		t.Fatalf("Function code: expected %v, actual %v", 3, pdu.FunctionCode)
 	}
 	expected := []byte{0, 120, 0, 3}
