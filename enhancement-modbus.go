@@ -109,6 +109,14 @@ func DecodeValueAsInterface(r DeviceRegister) (DecodedValue, error) {
 	res := DecodedValue{Raw: bytes}
 
 	switch r.DataType {
+	case "uint8":
+		v := uint8(bytes[0])
+		res.AsType = v
+		res.Float64 = float64(v)
+	case "int8":
+		v := int8(bytes[0])
+		res.AsType = v
+		res.Float64 = float64(v)
 	case "uint16":
 		v := binary.BigEndian.Uint16(bytes[:2])
 		res.AsType = v
