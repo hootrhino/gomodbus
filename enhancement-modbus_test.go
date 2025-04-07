@@ -1,12 +1,14 @@
 package modbus
 
 import (
+	"encoding/csv"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
 	"math"
 	"os"
+	"strconv"
 	"testing"
 )
 
@@ -420,4 +422,117 @@ func compare2BytesEqual(a, b [8]byte) bool {
 
 	// Compare the parsed values
 	return valA == valB
+}
+
+// LoadRegisterFromCSV loads Modbus registers from a CSV file into a slice of DeviceRegister
+func LoadRegisterFromCSV(filePath string) ([]DeviceRegister, error) {
+	// Open the CSV file
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open file: %v", err)
+	}
+	defer file.Close()
+
+	// Parse the CSV file
+	reader := csv.NewReader(file)
+	records, err := reader.ReadAll()
+	if err != nil {
+		return nil, fmt.Errorf("failed to read CSV file: %v", err)
+	}
+
+	// Ensure there is at least a header row
+	if len(records) < 2 {
+		return nil, fmt.Errorf("CSV file must contain at least a header and one data row")
+	}
+
+	// Parse the header row (optional, for validation)
+	header := records[0]
+	expectedHeader := []string{"Tag", "Alias", "Function", "SlaveId", "Address", "Frequency", "Quantity", "DataType", "BitMask", "DataOrder", "Weight"}
+	if len(header) != len(expectedHeader) {
+		return nil, fmt.Errorf("CSV header does not match expected format")
+	}
+
+	// Parse the data rows
+	var registers []DeviceRegister
+	for _, row := range records[1:] {
+		if len(row) != len(expectedHeader) {
+			return nil, fmt.Errorf("row length does not match header length: %v", row)
+		}
+
+		// Parse each field
+		function, err := strconv.Atoi(row[2])
+		if err != nil {
+			return nil, fmt.Errorf("invalid Function value: %v", row[2])
+		}
+
+		slaveId, err := strconv.Atoi(row[3])
+		if err != nil {
+			return nil, fmt.Errorf("invalid SlaveId value: %v", row[3])
+		}
+
+		address, err := strconv.Atoi(row[4])
+		if err != nil {
+			return nil, fmt.Errorf("invalid Address value: %v", row[4])
+		}
+
+		frequency, err := strconv.ParseInt(row[5], 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid Frequency value: %v", row[5])
+		}
+
+		quantity, err := strconv.Atoi(row[6])
+		if err != nil {
+			return nil, fmt.Errorf("invalid Quantity value: %v", row[6])
+		}
+
+		bitMask, err := strconv.Atoi(row[8])
+		if err != nil {
+			return nil, fmt.Errorf("invalid BitMask value: %v", row[8])
+		}
+
+		weight, err := strconv.ParseFloat(row[10], 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid Weight value: %v", row[10])
+		}
+
+		// Create a DeviceRegister instance
+		register := DeviceRegister{
+			Tag:       row[0],
+			Alias:     row[1],
+			Function:  function,
+			SlaverId:  byte(slaveId),
+			Address:   uint16(address),
+			Frequency: frequency,
+			Quantity:  uint16(quantity),
+			DataType:  row[7],
+			BitMask:   uint8(bitMask),
+			DataOrder: row[9],
+			Weight:    weight,
+		}
+
+		// Append to the result slice
+		registers = append(registers, register)
+	}
+
+	return registers, nil
+}
+func Test_LoadRegisterFromCSV(t *testing.T) {
+	filePath := "./test/test-sheet.csv"
+	registers, err := LoadRegisterFromCSV(filePath)
+	if err != nil {
+		t.Fatalf("Failed to load registers from CSV: %v", err)
+	}
+	// Print the loaded registers
+	for _, register := range registers {
+		t.Logf("Tag: %s, Alias: %s, Function: %d, SlaveId: %d, Address: %d, Frequency: %d, Quantity: %d, DataType: %s, BitMask: %d, DataOrder: %s, Weight: %.2f",
+			register.Tag, register.Alias, register.Function, register.SlaverId, register.Address,
+			register.Frequency, register.Quantity, register.DataType, register.BitMask, register.DataOrder,
+			register.Weight)
+	}
+	grouped := GroupDeviceRegister(registers)
+	jsonData, err := json.Marshal(grouped)
+	if err != nil {
+		t.Fatalf("error marshalling result: %v", err)
+	}
+	t.Logf("Grouped: %s", string(jsonData))
 }
