@@ -15,6 +15,7 @@ type DeviceRegister struct {
 	Frequency int64   `json:"frequency"`
 	Quantity  uint16  `json:"quantity"`
 	DataType  string  `json:"dataType"`  // uint16, int16, uint32, int32, float32, float64
+	BitMask   uint8   `json:"bitMask"`   // 0x0001, 0x0002, 0x0004, 0x0008
 	DataOrder string  `json:"dataOrder"` // ABCD, DCBA, CDAB, DCBA
 	Weight    float64 `json:"weight"`
 	Value     [4]byte `json:"value"`

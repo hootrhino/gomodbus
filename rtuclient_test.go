@@ -6,7 +6,7 @@ package modbus
 
 import (
 	"bytes"
-	"log"
+
 	"os"
 	"testing"
 )
@@ -120,7 +120,7 @@ func Test_RTU_ClientHandler(t *testing.T) {
 func Test_TCP_ClientHandler(t *testing.T) {
 	handler := NewTCPClientHandler("127.0.0.1:502")
 	handler.SlaveId = 1
-	handler.Logger = log.New(os.Stdout, "tcp: ", log.LstdFlags)
+	handler.Logger = NewSimpleLogger(os.Stdout, LevelDebug)
 
 	err := handler.Connect()
 	if err != nil {

@@ -8,7 +8,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -137,7 +136,7 @@ type tcpTransporter struct {
 	// Idle timeout to close the connection
 	IdleTimeout time.Duration
 	// Transmission logger
-	Logger *log.Logger
+	Logger io.WriteCloser
 
 	// TCP connection
 	mu           sync.Mutex
@@ -256,7 +255,7 @@ func (mb *tcpTransporter) flush(b []byte) (err error) {
 
 func (mb *tcpTransporter) logf(format string, v ...interface{}) {
 	if mb.Logger != nil {
-		mb.Logger.Printf(format, v...)
+		mb.Logger.Write(fmt.Appendf(nil, format, v...))
 	}
 }
 

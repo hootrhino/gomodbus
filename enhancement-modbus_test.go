@@ -84,11 +84,23 @@ func TestDecodeValueAsInterface(t *testing.T) {
 			expect:   0,
 			expectTy: nil,
 		},
+		{
+			name: "bitfield",
+			input: DeviceRegister{
+				Value:     [4]byte{0x01, 0x00, 0x00, 0x00},
+				DataOrder: "ABCD",
+				DataType:  "bitfield",
+				BitMask:   0x01,
+			},
+			expect:   1,
+			expectTy: uint8(1),
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			val, err := DecodeValueAsInterface(tt.input)
+			t.Logf("== DecodeValueAsInterface: %v", val)
 			if tt.expectTy == nil && err == nil {
 				t.Errorf("expected error, got nil")
 				return
@@ -101,6 +113,7 @@ func TestDecodeValueAsInterface(t *testing.T) {
 				t.Errorf("expected float64 %v, got %v", tt.expect, val.Float64)
 			}
 			t.Logf("== val.AsType: %T", val.AsType)
+
 			switch v := val.AsType.(type) {
 			case uint16:
 				if v != tt.expectTy.(uint16) {
@@ -126,8 +139,14 @@ func TestDecodeValueAsInterface(t *testing.T) {
 				if !FuzzyEqual(v, tt.expectTy.(float64)) {
 					t.Errorf("expected float64 %v, got %v", tt.expectTy, v)
 				}
-			case nil:
-				// expected nil
+			case uint8:
+				if v != tt.expectTy.(uint8) {
+					t.Errorf("expected uint8 %v, got %v", tt.expectTy, v)
+				}
+			case int8:
+				if v != tt.expectTy.(int8) {
+					t.Errorf("expected int8 %v, got %v", tt.expectTy, v)
+				}
 			default:
 				t.Errorf("unexpected type %T", v)
 			}
@@ -216,6 +235,54 @@ func Test_GroupDevice_125_Registers(t *testing.T) {
 	handler.DataBits = 8
 	handler.Parity = "N"
 	handler.StopBits = 1
+	handler.SlaveId = 1
+	handler.Logger = NewSimpleLogger(os.Stdout, LevelDebug)
+
+	err := handler.Connect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer handler.Close()
+	client := NewClient(handler)
+	defer client.GetTransporter().Close()
+	testGroup(t, client, input1)
+	testGroup(t, client, input2)
+}
+
+// go test -timeout 30s -run ^Test_Group_TCP_Device_125_Registers$ github.com/hootrhino/gomodbus -v -count=1
+func Test_Group_TCP_Device_125_Registers(t *testing.T) {
+	// Group 1: 1-25
+	input1 := make([]DeviceRegister, 10)
+	for i := 0; i < 10; i++ {
+		input1[i].Address = uint16(i + 1)
+		input1[i].Tag = fmt.Sprintf("Tag%d", i+1)
+		input1[i].Alias = fmt.Sprintf("Alias%d", i+1)
+		input1[i].Function = 3
+		input1[i].SlaverId = 1
+		input1[i].Frequency = 1
+		input1[i].Quantity = 1
+		input1[i].DataType = "uint16"
+		input1[i].DataOrder = "ABCD"
+		input1[i].Weight = 1.0
+		input1[i].Value = [4]byte{0, 0, 0, 0}
+	}
+	input2 := make([]DeviceRegister, 10)
+	for i := 26; i < 36; i++ {
+		input2[i-26].Address = uint16(i + 1)
+		input2[i-26].Tag = fmt.Sprintf("Tag%d", i+1)
+		input2[i-26].Alias = fmt.Sprintf("Alias%d", i+1)
+		input2[i-26].Function = 3
+		input2[i-26].SlaverId = 1
+		input2[i-26].Frequency = 1
+		input2[i-26].Quantity = 1
+		input2[i-26].DataType = "uint16"
+		input2[i-26].DataOrder = "ABCD"
+		input2[i-26].Weight = 1.0
+		input2[i-26].Value = [4]byte{0, 0, 0, 0}
+	}
+
+	// Group the registers
+	handler := NewTCPClientHandler("127.0.0.1:520")
 	handler.SlaveId = 1
 	handler.Logger = NewSimpleLogger(os.Stdout, LevelDebug)
 

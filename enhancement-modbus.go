@@ -3,6 +3,7 @@ package modbus
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"math"
 	"sort"
 	"unsafe"
@@ -94,6 +95,14 @@ type DecodedValue struct {
 	AsType  any     `json:"asType"`
 }
 
+// ToString returns the string representation of the DecodedValue
+func (dv DecodedValue) ToString() string {
+	if dv.AsType != nil {
+		return fmt.Sprintf("%v", dv.AsType)
+	}
+	return fmt.Sprintf("%v", dv.Float64)
+}
+
 // DecodeValue decodes the raw value into float64 according to DataType and DataOrder
 func DecodeValue(r DeviceRegister) float64 {
 	val, _ := DecodeValueAsInterface(r)
@@ -109,6 +118,10 @@ func DecodeValueAsInterface(r DeviceRegister) (DecodedValue, error) {
 	res := DecodedValue{Raw: bytes}
 
 	switch r.DataType {
+	case "bitfield":
+		v := bytes[0] & r.BitMask
+		res.AsType = v //bytes[0] is uint8
+		res.Float64 = float64(v)
 	case "uint8":
 		v := uint8(bytes[0])
 		res.AsType = v
