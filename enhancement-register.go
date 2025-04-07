@@ -52,6 +52,12 @@ func (r DeviceRegister) DecodeValue() (DecodedValue, error) {
 
 	switch r.DataType {
 	case "bitfield":
+		if len(bytes) < 1 {
+			return res, errors.New("not enough bytes for bitfield")
+		}
+		if r.BitMask == 0 {
+			return res, errors.New("bitMask is not set")
+		}
 		v := bytes[0] & r.BitMask
 		res.AsType = v //bytes[0] is uint8
 		res.Float64 = float64(v)

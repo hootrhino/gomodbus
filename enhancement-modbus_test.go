@@ -131,8 +131,8 @@ func Test_GroupDeviceRegister(t *testing.T) {
 	}
 }
 
-// go test -timeout 30s -run ^Test_GroupDevice_125_Registers$ github.com/hootrhino/gomodbus -v -count=1
-func Test_GroupDevice_125_Registers(t *testing.T) {
+// go test -timeout 30s -run ^Test_GroupDevice_UART_125_Registers$ github.com/hootrhino/gomodbus -v -count=1
+func Test_GroupDevice_UART_125_Registers(t *testing.T) {
 	// Group 1: 1-25
 	input1 := make([]DeviceRegister, 10)
 	for i := 0; i < 10; i++ {
