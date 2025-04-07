@@ -1,154 +1,88 @@
 package modbus
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
+	"math"
 	"os"
 	"testing"
 )
 
-func TestDecodeValueAsInterface(t *testing.T) {
+func Test_float32FromBits(t *testing.T) {
 	tests := []struct {
-		name     string
-		input    DeviceRegister
-		expect   float64
-		expectTy interface{}
+		name   string
+		bits   uint32
+		expect float32
 	}{
 		{
-			name: "uint16_ABCD",
-			input: DeviceRegister{
-				Value:     [4]byte{0x01, 0x02, 0x00, 0x00},
-				DataOrder: "ABCD",
-				DataType:  "uint16",
-			},
-			expect:   258,
-			expectTy: uint16(258),
+			name:   "positive_float",
+			bits:   0x42480000, // 50.0 in IEEE 754
+			expect: 50.0,
 		},
 		{
-			name: "int16_DCBA",
-			input: DeviceRegister{
-				Value:     [4]byte{0xFF, 0xFE, 0x00, 0x00},
-				DataOrder: "DCBA",
-				DataType:  "int16",
-			},
-			expect:   -2,
-			expectTy: int16(-2),
+			name:   "negative_float",
+			bits:   0xC2480000, // -50.0 in IEEE 754
+			expect: -50.0,
 		},
 		{
-			name: "uint32_ABCD",
-			input: DeviceRegister{
-				Value:     [4]byte{0x00, 0x00, 0x01, 0x00},
-				DataOrder: "ABCD",
-				DataType:  "uint32",
-			},
-			expect:   65536,
-			expectTy: uint32(65536),
+			name:   "zero",
+			bits:   0x00000000, // 0.0 in IEEE 754
+			expect: 0.0,
 		},
 		{
-			name: "int32_CDAB",
-			input: DeviceRegister{
-				Value:     [4]byte{0x00, 0x00, 0xFF, 0xFE},
-				DataOrder: "CDAB",
-				DataType:  "int32",
-			},
-			expect:   -2,
-			expectTy: int32(-2),
-		},
-		{
-			name: "float32_ABCD",
-			input: DeviceRegister{
-				Value:     [4]byte{0x42, 0x48, 0x00, 0x00},
-				DataOrder: "ABCD",
-				DataType:  "float32",
-			},
-			expect:   50.0,
-			expectTy: float32(50.0),
-		},
-		{
-			name: "float64_truncated",
-			input: DeviceRegister{
-				Value:     [4]byte{0x40, 0x49, 0x0f, 0xdb},
-				DataOrder: "ABCD",
-				DataType:  "float64",
-			},
-			expect:   3.141592653589793,
-			expectTy: float64(3.141592653589793),
-		},
-		{
-			name: "invalid_type",
-			input: DeviceRegister{
-				Value:     [4]byte{0x00, 0x00, 0x00, 0x00},
-				DataOrder: "ABCD",
-				DataType:  "invalid",
-			},
-			expect:   0,
-			expectTy: nil,
-		},
-		{
-			name: "bitfield",
-			input: DeviceRegister{
-				Value:     [4]byte{0x01, 0x00, 0x00, 0x00},
-				DataOrder: "ABCD",
-				DataType:  "bitfield",
-				BitMask:   0x01,
-			},
-			expect:   1,
-			expectTy: uint8(1),
+			name:   "small_float",
+			bits:   0x3DCCCCCD, // 0.1 in IEEE 754
+			expect: 0.1,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			val, err := DecodeValueAsInterface(tt.input)
-			t.Logf("== DecodeValueAsInterface: %v", val)
-			if tt.expectTy == nil && err == nil {
-				t.Errorf("expected error, got nil")
-				return
-			} else if tt.expectTy != nil && err != nil {
-				t.Errorf("unexpected error: %v", err)
-				return
+			result := float32FromBits(tt.bits)
+			t.Log("== float32FromBits", result)
+			if math.Abs(float64(result-tt.expect)) > 0.0001 {
+				t.Errorf("float32FromBits(%#x) = %f, want %f", tt.bits, result, tt.expect)
 			}
+		})
+	}
+}
 
-			if !FuzzyEqual(val.Float64, tt.expect) {
-				t.Errorf("expected float64 %v, got %v", tt.expect, val.Float64)
-			}
-			t.Logf("== val.AsType: %T", val.AsType)
+func Test_float64FromBits(t *testing.T) {
+	tests := []struct {
+		name   string
+		bits   uint64
+		expect float64
+	}{
+		{
+			name:   "positive_float",
+			bits:   0x4049000000000000, // 50.0 in IEEE 754
+			expect: 50.0,
+		},
+		{
+			name:   "negative_float",
+			bits:   0xC049000000000000, // -50.0 in IEEE 754
+			expect: -50.0,
+		},
+		{
+			name:   "zero",
+			bits:   0x0000000000000000, // 0.0 in IEEE 754
+			expect: 0.0,
+		},
+		{
+			name:   "pi",
+			bits:   0x400921FB54442D18, // 3.141592653589793 in IEEE 754
+			expect: 3.141592653589793,
+		},
+	}
 
-			switch v := val.AsType.(type) {
-			case uint16:
-				if v != tt.expectTy.(uint16) {
-					t.Errorf("expected uint16 %v, got %v", tt.expectTy, v)
-				}
-			case int16:
-				if v != tt.expectTy.(int16) {
-					t.Errorf("expected int16 %v, got %v", tt.expectTy, v)
-				}
-			case uint32:
-				if v != tt.expectTy.(uint32) {
-					t.Errorf("expected uint32 %v, got %v", tt.expectTy, v)
-				}
-			case int32:
-				if v != tt.expectTy.(int32) {
-					t.Errorf("expected int32 %v, got %v", tt.expectTy, v)
-				}
-			case float32:
-				if !FuzzyEqual(float64(v), float64(tt.expectTy.(float32))) {
-					t.Errorf("expected float32 %v, got %v", tt.expectTy, v)
-				}
-			case float64:
-				if !FuzzyEqual(v, tt.expectTy.(float64)) {
-					t.Errorf("expected float64 %v, got %v", tt.expectTy, v)
-				}
-			case uint8:
-				if v != tt.expectTy.(uint8) {
-					t.Errorf("expected uint8 %v, got %v", tt.expectTy, v)
-				}
-			case int8:
-				if v != tt.expectTy.(int8) {
-					t.Errorf("expected int8 %v, got %v", tt.expectTy, v)
-				}
-			default:
-				t.Errorf("unexpected type %T", v)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := float64FromBits(tt.bits)
+			t.Log("== float64FromBits", result)
+			if math.Abs(result-tt.expect) > 0.0000001 {
+				t.Errorf("float64FromBits(%#x) = %f, want %f", tt.bits, result, tt.expect)
 			}
 		})
 	}
@@ -300,7 +234,7 @@ func testGroup(t *testing.T, client Client, input []DeviceRegister) {
 	result := client.ReadGroupedRegisterValue(input)
 	for i, group := range result {
 		for j, reg := range group {
-			decodeValue, err := reg.DecodeValueAsInterface()
+			decodeValue, err := reg.DecodeValue()
 			if err != nil {
 				t.Errorf("Error decoding value: %v", err)
 			}
@@ -308,4 +242,182 @@ func testGroup(t *testing.T, client Client, input []DeviceRegister) {
 				i, j, reg.Address, reg.Tag, reg.Value, reg.DataType, reg.DataOrder, decodeValue.Float64)
 		}
 	}
+}
+
+func Test_DeviceRegister_DecodeValue(t *testing.T) {
+	tests := []struct {
+		name      string
+		register  DeviceRegister
+		expect    DecodedValue
+		expectErr bool
+	}{
+		{
+			name: "bitfield",
+			register: DeviceRegister{
+				DataType: "bitfield",
+				BitMask:  0x01,
+				Value:    [4]byte{0x03, 0x00, 0x00, 0x00}, // 0x03 & 0x01 = 0x01
+			},
+			expect: DecodedValue{
+				Raw:     []byte{0x03},
+				Float64: 1.0,
+				AsType:  uint8(0x01),
+			},
+			expectErr: false,
+		},
+		{
+			name: "uint8",
+			register: DeviceRegister{
+				DataType: "uint8",
+				Value:    [4]byte{0xFF, 0x00, 0x00, 0x00}, // 255
+			},
+			expect: DecodedValue{
+				Raw:     []byte{0xFF},
+				Float64: 255.0,
+				AsType:  uint8(255),
+			},
+			expectErr: false,
+		},
+		{
+			name: "int8",
+			register: DeviceRegister{
+				DataType: "int8",
+				Value:    [4]byte{0x80, 0x00, 0x00, 0x00}, // -128
+			},
+			expect: DecodedValue{
+				Raw:     []byte{0x80},
+				Float64: -128.0,
+				AsType:  int8(-128),
+			},
+			expectErr: false,
+		},
+		{
+			name: "uint16",
+			register: DeviceRegister{
+				DataType: "uint16",
+				Value:    [4]byte{0x12, 0x34, 0x00, 0x00}, // 0x1234 = 4660
+			},
+			expect: DecodedValue{
+				Raw:     []byte{0x12, 0x34},
+				Float64: 4660.0,
+				AsType:  uint16(4660),
+			},
+			expectErr: false,
+		},
+		{
+			name: "int16",
+			register: DeviceRegister{
+				DataType: "int16",
+				Value:    [4]byte{0xFF, 0xFE, 0x00, 0x00}, // -2
+			},
+			expect: DecodedValue{
+				Raw:     []byte{0xFF, 0xFE},
+				Float64: -2.0,
+				AsType:  int16(-2),
+			},
+			expectErr: false,
+		},
+		{
+			name: "uint32",
+			register: DeviceRegister{
+				DataType: "uint32",
+				Value:    [4]byte{0x12, 0x34, 0x56, 0x78}, // 0x12345678 = 305419896
+			},
+			expect: DecodedValue{
+				Raw:     []byte{0x12, 0x34, 0x56, 0x78},
+				Float64: 305419896.0,
+				AsType:  uint32(305419896),
+			},
+			expectErr: false,
+		},
+		{
+			name: "int32",
+			register: DeviceRegister{
+				DataType: "int32",
+				Value:    [4]byte{0xFF, 0xFF, 0xFF, 0xFE}, // -2
+			},
+			expect: DecodedValue{
+				Raw:     []byte{0xFF, 0xFF, 0xFF, 0xFE},
+				Float64: -2.0,
+				AsType:  int32(-2),
+			},
+			expectErr: false,
+		},
+		{
+			name: "float32",
+			register: DeviceRegister{
+				DataType: "float32",
+				Value:    [4]byte{0x42, 0x48, 0x00, 0x00}, // 50.0 in IEEE 754
+			},
+			expect: DecodedValue{
+				Raw:     []byte{0x42, 0x48, 0x00, 0x00},
+				Float64: 50.0,
+				AsType:  float32(50.0),
+			},
+			expectErr: false,
+		},
+		{
+			name: "float32-pi",
+			register: DeviceRegister{
+				DataType: "float32",
+				Value:    [4]byte{0x40, 0x49, 0x0F, 0xDC}, // Pi
+			},
+			expect: DecodedValue{
+				Raw:     []byte{0x40, 0x49, 0x0F, 0xDC},
+				Float64: 3.1415929794311523,
+				AsType:  float32(3.1415929794311523),
+			},
+			expectErr: false,
+		},
+		{
+			name: "unsupported_data_type",
+			register: DeviceRegister{
+				DataType: "unsupported",
+				Value:    [4]byte{0x00, 0x00, 0x00, 0x00},
+			},
+			expect:    DecodedValue{},
+			expectErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := tt.register.DecodeValue()
+			if (err != nil) != tt.expectErr {
+				t.Errorf("DecodeValue() error = %v, expectErr = %v", err, tt.expectErr)
+				return
+			}
+			t.Log("== result.Raw, tt.expect.Raw == ", result.Raw, tt.expect.Raw)
+			if !tt.expectErr {
+				if result.Float64 != tt.expect.Float64 {
+					t.Errorf("result.Float64 != tt.expect.Float64 = %v, want %v; result=%v expect=%v",
+						result, tt.expect, result.Float64, tt.expect.Float64)
+				}
+				a := [8]byte{}
+				b := [8]byte{}
+				copy(a[:], result.Raw)
+				copy(b[:], tt.expect.Raw)
+				log.Printf("== a = %v, b = %v", a, b)
+				if !compare2BytesEqual(a, b) {
+					t.Errorf("XXX compareBytes() Raw = %v, want %v", result.Raw, tt.expect.Raw)
+				}
+				if hex.EncodeToString(a[:]) != hex.EncodeToString(b[:]) {
+					t.Errorf("EncodeToString error Raw = %v, want %v", result.Raw, tt.expect.Raw)
+				}
+			}
+		})
+	}
+}
+
+// compare2BytesEqual parses two byte slices into unsigned integers and compares them
+func compare2BytesEqual(a, b [8]byte) bool {
+	// Parse both byte slices into unsigned integers
+	var valA, valB uint64
+	for i := 0; i < len(a); i++ {
+		valA = (valA << 8) | uint64(a[i])
+		valB = (valB << 8) | uint64(b[i])
+	}
+
+	// Compare the parsed values
+	return valA == valB
 }

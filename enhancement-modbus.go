@@ -1,12 +1,7 @@
 package modbus
 
 import (
-	"encoding/binary"
-	"errors"
-	"fmt"
-	"math"
 	"sort"
-	"unsafe"
 )
 
 // GroupDeviceRegister groups consecutive DeviceRegisters by Function and SlaverId
@@ -86,113 +81,4 @@ func ReadGroupedData(client Client, grouped [][]DeviceRegister) [][]DeviceRegist
 	}
 
 	return result
-}
-
-// DecodedValue holds all possible interpretations of a raw Modbus value
-type DecodedValue struct {
-	Raw     []byte  `json:"raw"`
-	Float64 float64 `json:"float64"`
-	AsType  any     `json:"asType"`
-}
-
-// ToString returns the string representation of the DecodedValue
-func (dv DecodedValue) ToString() string {
-	if dv.AsType != nil {
-		return fmt.Sprintf("%v", dv.AsType)
-	}
-	return fmt.Sprintf("%v", dv.Float64)
-}
-
-// DecodeValue decodes the raw value into float64 according to DataType and DataOrder
-func DecodeValue(r DeviceRegister) float64 {
-	val, _ := DecodeValueAsInterface(r)
-	return val.Float64
-}
-func (r DeviceRegister) DecodeValueAsInterface() (DecodedValue, error) {
-	return DecodeValueAsInterface(r)
-}
-
-// DecodeValueAsInterface returns the decoded result as multiple forms
-func DecodeValueAsInterface(r DeviceRegister) (DecodedValue, error) {
-	bytes := reorderBytes(r.Value, r.DataOrder)
-	res := DecodedValue{Raw: bytes}
-
-	switch r.DataType {
-	case "bitfield":
-		v := bytes[0] & r.BitMask
-		res.AsType = v //bytes[0] is uint8
-		res.Float64 = float64(v)
-	case "uint8":
-		v := uint8(bytes[0])
-		res.AsType = v
-		res.Float64 = float64(v)
-	case "int8":
-		v := int8(bytes[0])
-		res.AsType = v
-		res.Float64 = float64(v)
-	case "uint16":
-		v := binary.BigEndian.Uint16(bytes[:2])
-		res.AsType = v
-		res.Float64 = float64(v)
-	case "int16":
-		v := int16(binary.BigEndian.Uint16(bytes[:2]))
-		res.AsType = v
-		res.Float64 = float64(v)
-	case "uint32":
-		v := binary.BigEndian.Uint32(bytes[:4])
-		res.AsType = v
-		res.Float64 = float64(v)
-	case "int32":
-		v := int32(binary.BigEndian.Uint32(bytes[:4]))
-		res.AsType = v
-		res.Float64 = float64(v)
-	case "float32":
-		bits := binary.BigEndian.Uint32(bytes[:4])
-		v := float32FromBits(bits)
-		res.AsType = v
-		res.Float64 = float64(v)
-	case "float64":
-		v := float64FromBytes(bytes[:])
-		res.AsType = v
-		res.Float64 = v
-	default:
-		return res, errors.New("unsupported data type")
-	}
-
-	return res, nil
-}
-
-// reorderBytes reorders bytes according to DataOrder
-func reorderBytes(data [4]byte, order string) []byte {
-	switch order {
-	case "AB":
-		return data[:2]
-	case "BA":
-		return []byte{data[1], data[0]}
-	case "ABCD":
-		return data[:]
-	case "DCBA":
-		return []byte{data[3], data[2], data[1], data[0]}
-	case "BADC":
-		return []byte{data[1], data[0], data[3], data[2]}
-	case "CDAB":
-		return []byte{data[2], data[3], data[0], data[1]}
-	default:
-		return data[:]
-	}
-}
-
-func float32FromBits(bits uint32) float32 {
-	return *(*float32)(unsafe.Pointer(&bits))
-}
-
-func float64FromBytes(b []byte) float64 {
-	var arr [8]byte
-	copy(arr[:], b)
-	return *(*float64)(unsafe.Pointer(&arr))
-}
-
-// FuzzyEqual compares two float64 values with a tolerance
-func FuzzyEqual(a, b float64) bool {
-	return math.Abs(a-b) < 0.0001
 }
