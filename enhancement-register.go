@@ -19,10 +19,10 @@ type DeviceRegister struct {
 	Frequency int64   `json:"frequency"` // Polling frequency in milliseconds
 	Quantity  uint16  `json:"quantity"`  // Number of registers to read/write
 	DataType  string  `json:"dataType"`  // Data type of the register value (e.g., uint16, int32, float32)
-	BitMask   uint8   `json:"bitMask"`   // Bitmask for bit-level operations (e.g., 0x01, 0x02)
+	BitMask   uint16  `json:"bitMask"`   // Bitmask for bit-level operations (e.g., 0x01, 0x02)
 	DataOrder string  `json:"dataOrder"` // Byte order for multi-byte values (e.g., ABCD, DCBA)
 	Weight    float64 `json:"weight"`    // Scaling factor for the register value
-	Value     [4]byte `json:"value"`     // Raw value of the register as a byte array
+	Value     [8]byte `json:"value"`     // Raw value of the register as a byte array
 }
 
 // Encode Bytes
@@ -44,71 +44,78 @@ func (r DeviceRegister) String() string {
 	return string(jsonData)
 }
 
+func CheckBit(num uint16, index uint16) bool {
+	if index < 0 || index > 15 {
+		return false
+	}
+	mask := uint16(1) << index
+	return (num & mask) != 0
+}
+
 // DecodeValueAsInterface returns the decoded result as multiple forms
 func (r DeviceRegister) DecodeValue() (DecodedValue, error) {
-
 	bytes := reorderBytes(r.Value, r.DataOrder)
 	res := DecodedValue{Raw: bytes}
 
 	switch r.DataType {
-	case "bitfield":
-		if len(bytes) < 1 {
-			return res, errors.New("not enough bytes for bitfield")
+	case "bool":
+		Uint16 := binary.BigEndian.Uint16(bytes[:2])
+		res.AsType = CheckBit(Uint16, r.BitMask)
+		res.Float64 = 0
+		if res.AsType.(bool) {
+			res.Float64 = 1
 		}
-		if r.BitMask == 0 {
-			return res, errors.New("bitMask is not set")
-		}
-		v := bytes[0] & r.BitMask
-		res.AsType = v //bytes[0] is uint8
+	case "byte":
+		v := bytes[0]
+		res.AsType = v
 		res.Float64 = float64(v)
 	case "uint8":
 		v := uint8(bytes[0])
 		res.AsType = v
-		res.Float64 = float64(v)
+		res.Float64 = float64(v) * r.Weight
 	case "int8":
 		v := int8(bytes[0])
 		res.AsType = v
-		res.Float64 = float64(v)
+		res.Float64 = float64(v) * r.Weight
 	case "uint16":
 		v := binary.BigEndian.Uint16(bytes[:2])
 		res.AsType = v
-		res.Float64 = float64(v)
+		res.Float64 = float64(v) * r.Weight
 	case "int16":
 		v := int16(binary.BigEndian.Uint16(bytes[:2]))
 		res.AsType = v
-		res.Float64 = float64(v)
+		res.Float64 = float64(v) * r.Weight
 	case "uint32":
 		v := binary.BigEndian.Uint32(bytes[:4])
 		res.AsType = v
-		res.Float64 = float64(v)
+		res.Float64 = float64(v) * r.Weight
 	case "int32":
 		v := int32(binary.BigEndian.Uint32(bytes[:4]))
 		res.AsType = v
-		res.Float64 = float64(v)
+		res.Float64 = float64(v) * r.Weight
 	case "float32":
 		bits := binary.BigEndian.Uint32(bytes[:4])
 		v := float32FromBits(bits)
 		res.AsType = v
-		res.Float64 = float64(v)
+		res.Float64 = float64(v) * r.Weight
 	case "float64":
-		if len(bytes) < 8 {
-			return res, errors.New("not enough bytes for float64")
-		}
 		// Ensure we have enough bytes for float64
 		bits := binary.BigEndian.Uint64(bytes[:8])
 		v := float64FromBits(bits)
 		res.AsType = v
-		res.Float64 = float64(v)
+		res.Float64 = float64(v) * r.Weight
 	default:
-		return res, errors.New("unsupported data type")
+		return res, errors.New("unsupported data type:" + r.DataType)
 	}
 
 	return res, nil
 }
 
 // reorderBytes reorders bytes according to DataOrder
-func reorderBytes(data [4]byte, order string) []byte {
+func reorderBytes(data [8]byte, order string) []byte {
 	switch order {
+	case "A":
+		return data[:1]
 	case "AB":
 		return data[:2]
 	case "BA":
@@ -128,9 +135,9 @@ func reorderBytes(data [4]byte, order string) []byte {
 
 // DecodedValue holds all possible interpretations of a raw Modbus value
 type DecodedValue struct {
-	Raw     []byte  `json:"raw"`
-	Float64 float64 `json:"float64"`
-	AsType  any     `json:"asType"`
+	Raw     []byte  `json:"raw"`     // Raw value as bytes
+	Float64 float64 `json:"float64"` // Value as float64
+	AsType  any     `json:"asType"`  // Value as any type
 }
 
 // ToString returns the string representation of the DecodedValue
