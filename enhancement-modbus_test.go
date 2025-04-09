@@ -267,26 +267,39 @@ func Test_Group_TCP_Device_125_Registers(t *testing.T) {
 	testGroup(t, client, input1)
 	testGroup(t, client, input2)
 }
+
+// go test -timeout 30s -run ^Test_Group_TCP_Device_1_Bool_Register$ github.com/hootrhino/gomodbus -v -count=1
 func testGroup(t *testing.T, client Client, input []DeviceRegister) {
 	result := client.ReadGroupedRegisterValue(input)
 	for i, group := range result {
-		for j, reg := range group {
+		t.Logf("== ReadGroupedRegisterValue.[%v]", i)
+		for _, reg := range group {
 			decodeValue, err := reg.DecodeValue()
 			if err != nil {
 				t.Errorf("Error decoding value: %v", err)
 			}
 			t.Logf(
-				`== Group[%v]
-Index= %v
-Address= %v
-Tag= %v
-BitMask= %v
-Value = %v
-DataType= %v
-DataOrder= %v
-DecodeValue.AsType= %v
-DecodeValue.Float64= %v`,
-				i, j, reg.Address, reg.Tag, reg.BitMask, reg.Value, reg.DataType, reg.DataOrder, decodeValue.AsType, decodeValue.Float64)
+				`
+============= Value =============
+R.Tag: %v
+R.Alias: %v
+R.SlaverId: %v
+R.Function: %v
+R.Address: %v
+R.Quantity: %v
+R.DataOrder: %v
+R.DataType: %v
+R.Weight: %v
+R.Value: %v
+---------------------------------
+V.AsType: %v
+V.Float64: %v
+=================================
+`,
+				reg.Tag, reg.Alias, reg.SlaverId,
+				reg.Function, reg.Address, reg.Quantity,
+				reg.DataOrder, reg.DataType, reg.Weight, reg.Value,
+				decodeValue.AsType, decodeValue.GetFloat64Value(4))
 		}
 	}
 }
@@ -671,5 +684,53 @@ func Test_DeviceRegister_Decode_Bool_false_Value(t *testing.T) {
 			}
 
 		})
+	}
+}
+
+func Test_Decode_10RTU_Registers(t *testing.T) {
+	// Group the registers
+	handler := NewRTUClientHandler("COM17")
+	handler.SlaveId = 1
+	handler.Logger = NewSimpleLogger(os.Stdout, LevelDebug)
+
+	err := handler.Connect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer handler.Close()
+	client := NewClient(handler)
+	defer client.GetTransporter().Close()
+	input1 := make([]DeviceRegister, 10)
+	for j := 2; j < 5; j++ {
+		for i := range 10 {
+			reg1 := DeviceRegister{}
+			reg1.Tag = fmt.Sprintf("Tag-%d-%d", j, i)
+			reg1.Alias = fmt.Sprintf("Alias-%d-%d", j, i)
+			reg1.SlaverId = 1
+			reg1.Function = j
+			reg1.Address = uint16(i)
+			reg1.Quantity = 1
+			if j == 1 {
+				reg1.DataType = "bool"
+				reg1.DataOrder = "A"
+			}
+			if j == 2 || j == 3 {
+				reg1.DataType = "int16"
+				reg1.DataOrder = "AB"
+			}
+			if j == 4 {
+				reg1.DataType = "int16"
+				reg1.DataOrder = "AB"
+			}
+			reg1.Frequency = 10
+			reg1.Weight = 1
+			reg1.Value = [8]byte{0}
+			input1 = append(input1, reg1)
+		}
+	}
+
+	result := client.ReadGroupedRegisterValue(input1)
+	for _, group := range result {
+		testGroup(t, client, group)
 	}
 }

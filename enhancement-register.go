@@ -140,6 +140,13 @@ type DecodedValue struct {
 	AsType  any     `json:"asType"`  // Value as any type
 }
 
+func (dv DecodedValue) GetFloat64Value(round int) float64 {
+	if round > 0 {
+		return math.Round(dv.Float64*math.Pow(10, float64(round))) / math.Pow(10, float64(round))
+	}
+	return dv.Float64
+}
+
 // ToString returns the string representation of the DecodedValue
 func (dv DecodedValue) String() string {
 	return fmt.Sprintf("Raw: %v, Float64: %f, AsType: %v", dv.Raw, dv.Float64, dv.AsType)
