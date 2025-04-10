@@ -688,7 +688,9 @@ func Test_DeviceRegister_Decode_Bool_false_Value(t *testing.T) {
 	}
 }
 
-func Test_Decode_10_TCP_Registers(t *testing.T) {
+// go test -benchmem -run=^$ -bench ^Benchmark_Decode_10_TCP_Registers$ github.com/hootrhino/gomodbus -v -count=10000 -benchtime=10s
+func Benchmark_Decode_10_TCP_Registers(b *testing.B) {
+	b.ResetTimer()
 
 	input1 := []DeviceRegister{}
 	{
@@ -771,13 +773,24 @@ func Test_Decode_10_TCP_Registers(t *testing.T) {
 
 	err := handler.Connect()
 	if err != nil {
-		t.Fatal(err)
+		b.Fatal(err)
 	}
 	defer handler.Close()
 	client := NewClient(handler)
 	defer client.GetTransporter().Close()
-	result := client.ReadGroupedRegisterValue(input1)
-	for _, group := range result {
-		testGroup(t, client, group)
-	}
+	acc := 1000
+	b.Run("Decode_10_TCP_Registers", func(b *testing.B) {
+		if acc > 1000 {
+			b.StopTimer()
+		}
+		acc--
+		result := client.ReadGroupedRegisterValue(input1)
+		for _, group := range result {
+			for _, reg := range group {
+				b.Log("== ", reg.String())
+			}
+		}
+
+	})
+
 }
