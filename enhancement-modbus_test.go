@@ -291,6 +291,7 @@ R.DataOrder: %v
 R.DataType: %v
 R.Weight: %v
 R.Value: %v
+R.Status: %v
 ---------------------------------
 V.AsType: %v
 V.Float64: %v
@@ -298,7 +299,7 @@ V.Float64: %v
 `,
 				reg.Tag, reg.Alias, reg.SlaverId,
 				reg.Function, reg.Address, reg.Quantity,
-				reg.DataOrder, reg.DataType, reg.Weight, reg.Value,
+				reg.DataOrder, reg.DataType, reg.Weight, reg.Value, reg.Status,
 				decodeValue.AsType, decodeValue.GetFloat64Value(4))
 		}
 	}
@@ -687,7 +688,82 @@ func Test_DeviceRegister_Decode_Bool_false_Value(t *testing.T) {
 	}
 }
 
-func Test_Decode_10RTU_Registers(t *testing.T) {
+func Test_Decode_10_TCP_Registers(t *testing.T) {
+
+	input1 := []DeviceRegister{}
+	{
+		// Func1
+		for i := range 16 {
+			reg1 := DeviceRegister{}
+			reg1.Tag = fmt.Sprintf("Tag-bool-%d-%d", 1, i)
+			reg1.Alias = fmt.Sprintf("Alias-bool-%d-%d", 1, i)
+			reg1.SlaverId = 1
+			reg1.Function = 1
+			reg1.Address = 0
+			reg1.Quantity = 1
+			reg1.DataType = "bool"
+			reg1.DataOrder = "A"
+			reg1.Frequency = 10
+			reg1.Weight = 1
+			reg1.BitMask = uint16(i)
+			reg1.Value = [8]byte{0}
+			input1 = append(input1, reg1)
+		}
+	}
+	{
+		// Func2
+		for i := 10; i < 20; i++ {
+			reg1 := DeviceRegister{}
+			reg1.Tag = fmt.Sprintf("Tag-%d-%d", 2, i)
+			reg1.Alias = fmt.Sprintf("Alias-%d-%d", 2, i)
+			reg1.SlaverId = 1
+			reg1.Function = 2
+			reg1.Address = uint16(i)
+			reg1.Quantity = 1
+			reg1.DataType = "uint16"
+			reg1.DataOrder = "AB"
+			reg1.Frequency = 10
+			reg1.Weight = 1
+			reg1.Value = [8]byte{0}
+			input1 = append(input1, reg1)
+		}
+	}
+	{
+		// Func3
+		for i := 20; i < 30; i++ {
+			reg1 := DeviceRegister{}
+			reg1.Tag = fmt.Sprintf("Tag-%d-%d", 3, i)
+			reg1.Alias = fmt.Sprintf("Alias-%d-%d", 3, i)
+			reg1.SlaverId = 1
+			reg1.Function = 3
+			reg1.Address = uint16(i)
+			reg1.Quantity = 1
+			reg1.DataType = "uint16"
+			reg1.DataOrder = "AB"
+			reg1.Frequency = 10
+			reg1.Weight = 1
+			reg1.Value = [8]byte{0}
+			input1 = append(input1, reg1)
+		}
+	}
+	{
+		// Func4
+		for i := 30; i < 40; i++ {
+			reg1 := DeviceRegister{}
+			reg1.Tag = fmt.Sprintf("Tag-%d-%d", 4, i)
+			reg1.Alias = fmt.Sprintf("Alias-%d-%d", 4, i)
+			reg1.SlaverId = 1
+			reg1.Function = 4
+			reg1.Address = uint16(i)
+			reg1.Quantity = 1
+			reg1.DataType = "uint16"
+			reg1.DataOrder = "AB"
+			reg1.Frequency = 10
+			reg1.Weight = 1
+			reg1.Value = [8]byte{0}
+			input1 = append(input1, reg1)
+		}
+	}
 	// Group the registers
 	handler := NewRTUClientHandler("COM17")
 	handler.SlaveId = 1
@@ -700,35 +776,6 @@ func Test_Decode_10RTU_Registers(t *testing.T) {
 	defer handler.Close()
 	client := NewClient(handler)
 	defer client.GetTransporter().Close()
-	input1 := make([]DeviceRegister, 10)
-	for j := 2; j < 5; j++ {
-		for i := range 10 {
-			reg1 := DeviceRegister{}
-			reg1.Tag = fmt.Sprintf("Tag-%d-%d", j, i)
-			reg1.Alias = fmt.Sprintf("Alias-%d-%d", j, i)
-			reg1.SlaverId = 1
-			reg1.Function = j
-			reg1.Address = uint16(i)
-			reg1.Quantity = 1
-			if j == 1 {
-				reg1.DataType = "bool"
-				reg1.DataOrder = "A"
-			}
-			if j == 2 || j == 3 {
-				reg1.DataType = "int16"
-				reg1.DataOrder = "AB"
-			}
-			if j == 4 {
-				reg1.DataType = "int16"
-				reg1.DataOrder = "AB"
-			}
-			reg1.Frequency = 10
-			reg1.Weight = 1
-			reg1.Value = [8]byte{0}
-			input1 = append(input1, reg1)
-		}
-	}
-
 	result := client.ReadGroupedRegisterValue(input1)
 	for _, group := range result {
 		testGroup(t, client, group)

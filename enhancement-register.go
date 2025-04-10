@@ -22,6 +22,7 @@ type DeviceRegister struct {
 	BitMask   uint16  `json:"bitMask"`   // Bitmask for bit-level operations (e.g., 0x01, 0x02)
 	DataOrder string  `json:"dataOrder"` // Byte order for multi-byte values (e.g., ABCD, DCBA)
 	Weight    float64 `json:"weight"`    // Scaling factor for the register value
+	Status    string  `json:"status"`    // Status of the register (e.g., "OK", "Error")
 	Value     [8]byte `json:"value"`     // Raw value of the register as a byte array
 }
 

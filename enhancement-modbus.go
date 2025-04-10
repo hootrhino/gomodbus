@@ -1,84 +1,82 @@
 package modbus
 
-import (
-	"sort"
-)
+import "fmt"
 
-// GroupDeviceRegister groups consecutive DeviceRegisters by Function and SlaverId
 func GroupDeviceRegister(registers []DeviceRegister) [][]DeviceRegister {
-	sort.Slice(registers, func(i, j int) bool {
-		if registers[i].SlaverId != registers[j].SlaverId {
-			return registers[i].SlaverId < registers[j].SlaverId
-		}
-		if registers[i].Function != registers[j].Function {
-			return registers[i].Function < registers[j].Function
-		}
-		return registers[i].Address < registers[j].Address
-	})
+	sortRegisters(registers)
 
-	var groups [][]DeviceRegister
-	if len(registers) == 0 {
-		return groups
-	}
-
-	currentGroup := []DeviceRegister{registers[0]}
-	last := registers[0]
-
-	for i := 1; i < len(registers); i++ {
-		r := registers[i]
-		if r.Function == last.Function && r.SlaverId == last.SlaverId && r.Address <= last.Address+last.Quantity {
-			currentGroup = append(currentGroup, r)
-		} else {
-			groups = append(groups, currentGroup)
-			currentGroup = []DeviceRegister{r}
-		}
-		last = r
-	}
-	groups = append(groups, currentGroup)
-
-	return groups
-}
-
-// ReadData reads batches of grouped registers using the provided Modbus client
-func ReadGroupedData(client Client, grouped [][]DeviceRegister) [][]DeviceRegister {
-	var result [][]DeviceRegister
-
-	for _, group := range grouped {
-		if len(group) == 0 {
-			continue
-		}
-		start := group[0].Address
-		end := start
-		for _, reg := range group {
-			if reg.Address+reg.Quantity > end {
-				end = reg.Address + reg.Quantity
+	var grouped [][]DeviceRegister
+	for i := 0; i < len(registers); {
+		currentGroup := []DeviceRegister{registers[i]}
+		last := registers[i]
+		i++
+		for i < len(registers) {
+			current := registers[i]
+			if current.SlaverId == last.SlaverId && current.Function == last.Function && current.Address == last.Address+last.Quantity {
+				currentGroup = append(currentGroup, current)
+				last = current
+				i++
+			} else {
+				break
 			}
 		}
-		quantity := end - start
+		grouped = append(grouped, currentGroup)
+	}
+	return grouped
+}
+
+func sortRegisters(registers []DeviceRegister) {
+	for i := 0; i < len(registers)-1; i++ {
+		for j := 0; j < len(registers)-i-1; j++ {
+			if registers[j].SlaverId > registers[j+1].SlaverId ||
+				(registers[j].SlaverId == registers[j+1].SlaverId &&
+					registers[j].Function > registers[j+1].Function) ||
+				(registers[j].SlaverId == registers[j+1].SlaverId &&
+					registers[j].Function == registers[j+1].Function &&
+					registers[j].Address > registers[j+1].Address) {
+				registers[j], registers[j+1] = registers[j+1], registers[j]
+			}
+		}
+	}
+}
+
+func ReadGroupedData(client Client, grouped [][]DeviceRegister) [][]DeviceRegister {
+	var result [][]DeviceRegister
+	for _, group := range grouped {
+		start := group[0].Address
+		var totalQuantity uint16
+		for _, reg := range group {
+			totalQuantity += reg.Quantity
+		}
 		var data []byte
 		var err error
 		switch group[0].Function {
 		case 1:
-			data, err = client.ReadCoils(start, quantity)
+			data, err = client.ReadCoils(start, totalQuantity)
 		case 2:
-			data, err = client.ReadDiscreteInputs(start, quantity)
+			data, err = client.ReadDiscreteInputs(start, totalQuantity)
 		case 3:
-			data, err = client.ReadHoldingRegisters(start, quantity)
+			data, err = client.ReadHoldingRegisters(start, totalQuantity)
 		case 4:
-			data, err = client.ReadInputRegisters(start, quantity)
+			data, err = client.ReadInputRegisters(start, totalQuantity)
 		default:
+			fmt.Printf("Unsupported Modbus function code: %d\n", group[0].Function)
 			continue
 		}
-		if err != nil || len(data) < int(quantity*2) {
-			continue
-		}
-
-		for i := range group {
-			offset := (group[i].Address - start) * 2
-			copy(group[i].Value[:], data[offset:offset+4]) // support max 4 bytes
+		if err != nil {
+			fmt.Printf("Error reading registers: %v\n", err)
+			for i := range group {
+				group[i].Status = fmt.Sprintf("INVALID:%s", err)
+			}
+		} else {
+			offset := 0
+			for i := range group {
+				copy(group[i].Value[:group[i].Quantity*2], data[offset:offset+int(group[i].Quantity*2)])
+				group[i].Status = "VALID:OK"
+				offset += int(group[i].Quantity * 2)
+			}
 		}
 		result = append(result, group)
 	}
-
 	return result
 }
