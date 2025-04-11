@@ -13,11 +13,13 @@ import (
 type ClientHandler interface {
 	Packager
 	Transporter
+	Type() string
 }
 
 type client struct {
 	packager    Packager
 	transporter Transporter
+	clientType  string
 }
 
 // NewClient creates a new modbus client with given backend handler.
@@ -37,7 +39,13 @@ func (mb *client) ReadGroupedRegisterValue(registers []DeviceRegister) [][]Devic
 
 // ReadData reads batches of grouped registers using the provided Modbus client
 func (mb *client) groupReadData(registers [][]DeviceRegister) [][]DeviceRegister {
-	return ReadGroupedData(mb, registers)
+	if mb.clientType == "TCP" {
+		return ReadGroupedDataConcurrently(mb, registers)
+	}
+	return ReadGroupedDataSequential(mb, registers)
+}
+func (mb *client) Type() string {
+	return mb.clientType
 }
 
 // get Transporter

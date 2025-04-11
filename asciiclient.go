@@ -40,6 +40,9 @@ func ASCIIClient(address string) Client {
 	handler := NewASCIIClientHandler(address)
 	return NewClient(handler)
 }
+func (mb *asciiPackager) Type() string {
+	return "ASCII"
+}
 
 // asciiPackager implements Packager interface.
 type asciiPackager struct {
@@ -47,12 +50,13 @@ type asciiPackager struct {
 }
 
 // Encode encodes PDU in a ASCII frame:
-//  Start           : 1 char
-//  Address         : 2 chars
-//  Function        : 2 chars
-//  Data            : 0 up to 2x252 chars
-//  LRC             : 2 chars
-//  End             : 2 chars
+//
+//	Start           : 1 char
+//	Address         : 2 chars
+//	Function        : 2 chars
+//	Data            : 0 up to 2x252 chars
+//	LRC             : 2 chars
+//	End             : 2 chars
 func (mb *asciiPackager) Encode(pdu *ProtocolDataUnit) (adu []byte, err error) {
 	var buf bytes.Buffer
 

@@ -38,6 +38,9 @@ func RTUClient(address string) Client {
 	handler := NewRTUClientHandler(address)
 	return NewClient(handler)
 }
+func (mb *rtuPackager) Type() string {
+	return "RTU"
+}
 
 // rtuPackager implements Packager interface.
 type rtuPackager struct {
@@ -45,10 +48,11 @@ type rtuPackager struct {
 }
 
 // Encode encodes PDU in a RTU frame:
-//  Slave Address   : 1 byte
-//  Function        : 1 byte
-//  Data            : 0 up to 252 bytes
-//  CRC             : 2 byte
+//
+//	Slave Address   : 1 byte
+//	Function        : 1 byte
+//	Data            : 0 up to 252 bytes
+//	CRC             : 2 byte
 func (mb *rtuPackager) Encode(pdu *ProtocolDataUnit) (adu []byte, err error) {
 	length := len(pdu.Data) + 4
 	if length > rtuMaxSize {
