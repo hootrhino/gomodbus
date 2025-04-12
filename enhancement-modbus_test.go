@@ -10,6 +10,7 @@ import (
 	"os"
 	"strconv"
 	"testing"
+	"time"
 )
 
 func Test_float32FromBits(t *testing.T) {
@@ -575,25 +576,71 @@ func LoadRegisterFromCSV(filePath string) ([]DeviceRegister, error) {
 
 	return registers, nil
 }
+
+// go test -timeout 30s -run ^Test_LoadRegisterFromCSV$ github.com/hootrhino/gomodbus -v -count=1
+type testMqttData struct {
+	Header map[string]any `json:"header"`
+	Body   map[string]any `json:"body"`
+}
+
 func Test_LoadRegisterFromCSV(t *testing.T) {
 	filePath := "./test/test-sheet.csv"
-	registers, err := LoadRegisterFromCSV(filePath)
+	registers, err1 := LoadRegisterFromCSV(filePath)
+	if err1 != nil {
+		t.Fatalf("Failed to load registers from CSV: %v", err1)
+	}
+	handler := NewRTUClientHandler("COM3")
+	handler.BaudRate = 9600
+	handler.DataBits = 8
+	handler.Parity = "N"
+	handler.StopBits = 1
+	handler.SlaveId = 1
+	handler.Logger = NewSimpleLogger(os.Stdout, LevelDebug)
+
+	err := handler.Connect()
 	if err != nil {
-		t.Fatalf("Failed to load registers from CSV: %v", err)
+		t.Fatal(err)
 	}
-	// Print the loaded registers
-	for _, register := range registers {
-		t.Logf("Tag: %s, Alias: %s, Function: %d, SlaveId: %d, Address: %d, Frequency: %d, Quantity: %d, DataType: %s, BitMask: %d, DataOrder: %s, Weight: %.2f",
-			register.Tag, register.Alias, register.Function, register.SlaverId, register.Address,
-			register.Frequency, register.Quantity, register.DataType, register.BitMask, register.DataOrder,
-			register.Weight)
+	defer handler.Close()
+	client := NewClient(handler)
+	defer client.Close()
+	manager := NewRegisterManager(client, 10)
+	manager.LoadRegisters(registers)
+	manager.SetOnErrorCallback(func(err error) {
+		t.Log(err)
+	})
+	manager.SetOnReadCallback(func(registers []DeviceRegister) {
+		for _, register := range registers {
+			value, err := register.DecodeValue()
+			if err != nil {
+				t.Log(err)
+			}
+			testData := testMqttData{
+				Header: map[string]any{
+					"tag":   register.Tag,
+					"alias": register.Alias,
+				},
+				Body: map[string]any{
+					"value": value.AsType,
+				},
+			}
+			jsonData, err := json.Marshal(testData)
+			if err != nil {
+				t.Error(err)
+			}
+			t.Log(string(jsonData))
+
+			// t.Log("== ", register.Tag, register.Alias, register.DataType,
+			// 	register.DataOrder, register.BitMask, register.Weight, register.Frequency, value)
+		}
+	})
+	manager.Start()
+	for range 10 {
+		manager.ReadGroupedData()
 	}
-	grouped := GroupDeviceRegister(registers)
-	jsonData, err := json.Marshal(grouped)
-	if err != nil {
-		t.Fatalf("error marshalling result: %v", err)
-	}
-	t.Logf("Grouped: %s", string(jsonData))
+
+	time.Sleep(4 * time.Second)
+	manager.Stop()
 }
 func Test_DeviceRegister_Decode_Bool_true_Value(t *testing.T) {
 	tests := []struct {
