@@ -67,8 +67,8 @@ func Test_RegisterManager(t *testing.T) {
 		},
 		// no continued registers
 		{
-			Tag:       "Tag-0-bool",
-			Alias:     "Alias-0-bool",
+			Tag:       "Tag-10-bool",
+			Alias:     "Alias-10-bool",
 			SlaverId:  1,
 			Function:  3,
 			Address:   10,
@@ -81,8 +81,8 @@ func Test_RegisterManager(t *testing.T) {
 			Value:     [8]byte{0},
 		},
 		{
-			Tag:       "Tag-1",
-			Alias:     "Alias-1",
+			Tag:       "Tag-11",
+			Alias:     "Alias-11",
 			SlaverId:  1,
 			Function:  3,
 			Address:   11,
@@ -94,8 +94,8 @@ func Test_RegisterManager(t *testing.T) {
 			Value:     [8]byte{0},
 		},
 		{
-			Tag:       "Tag-2",
-			Alias:     "Alias-2",
+			Tag:       "Tag-12",
+			Alias:     "Alias-12",
 			SlaverId:  1,
 			Function:  3,
 			Address:   12,
