@@ -21,52 +21,108 @@ func Test_RegisterManager(t *testing.T) {
 	}
 	defer handler.Close()
 	client := NewClient(handler)
-	defer client.GetTransporter().Close()
-	manager := NewRegisterManager(client, "UART", 10)
-	manager.SetOnReadCallback(func(registers []DeviceRegister) {
-		t.Log(registers)
-	})
-	manager.SetOnErrorCallback(func(err error) {
-		t.Log(err)
-	})
-	manager.Start()
-	reg1 := DeviceRegister{}
-	reg1.Tag = "Tag-1"
-	reg1.Alias = "Alias-1"
-	reg1.SlaverId = 1
-	reg1.Function = 3
-	reg1.Address = 1
-	reg1.Quantity = 1
-	reg1.DataType = "uint16"
-	reg1.DataOrder = "AB"
-	reg1.Frequency = 10
-	reg1.Weight = 1
-	reg1.Value = [8]byte{0}
-	//
-	reg2 := DeviceRegister{}
-	reg2.Tag = "Tag-1"
-	reg2.Alias = "Alias-1"
-	reg2.SlaverId = 1
-	reg2.Function = 3
-	reg2.Address = 1
-	reg2.Quantity = 1
-	reg2.DataType = "uint16"
-	reg2.DataOrder = "AB"
-	reg2.Frequency = 10
-	reg2.Weight = 1
-	reg2.Value = [8]byte{0}
+	defer client.Close()
+	manager := NewRegisterManager(client, 10)
+
 	registers := []DeviceRegister{
-		reg1,
-		reg2,
+		{
+			Tag:       "Tag-0-bool",
+			Alias:     "Alias-0-bool",
+			SlaverId:  1,
+			Function:  3,
+			Address:   0,
+			Quantity:  1,
+			DataType:  "bool",
+			BitMask:   0x0001,
+			DataOrder: "AB",
+			Frequency: 10,
+			Weight:    1,
+			Value:     [8]byte{0},
+		},
+		{
+			Tag:       "Tag-1",
+			Alias:     "Alias-1",
+			SlaverId:  1,
+			Function:  3,
+			Address:   1,
+			Quantity:  1,
+			DataType:  "uint16",
+			DataOrder: "AB",
+			Frequency: 10,
+			Weight:    1,
+			Value:     [8]byte{0},
+		},
+		{
+			Tag:       "Tag-2",
+			Alias:     "Alias-2",
+			SlaverId:  1,
+			Function:  3,
+			Address:   2,
+			Quantity:  1,
+			DataType:  "uint16",
+			DataOrder: "AB",
+			Frequency: 10,
+			Weight:    1,
+			Value:     [8]byte{0},
+		},
+		// no continued registers
+		{
+			Tag:       "Tag-0-bool",
+			Alias:     "Alias-0-bool",
+			SlaverId:  1,
+			Function:  3,
+			Address:   10,
+			Quantity:  1,
+			DataType:  "bool",
+			BitMask:   0x0001,
+			DataOrder: "AB",
+			Frequency: 10,
+			Weight:    1,
+			Value:     [8]byte{0},
+		},
+		{
+			Tag:       "Tag-1",
+			Alias:     "Alias-1",
+			SlaverId:  1,
+			Function:  3,
+			Address:   11,
+			Quantity:  1,
+			DataType:  "uint16",
+			DataOrder: "AB",
+			Frequency: 10,
+			Weight:    1,
+			Value:     [8]byte{0},
+		},
+		{
+			Tag:       "Tag-2",
+			Alias:     "Alias-2",
+			SlaverId:  1,
+			Function:  3,
+			Address:   12,
+			Quantity:  1,
+			DataType:  "uint16",
+			DataOrder: "AB",
+			Frequency: 10,
+			Weight:    1,
+			Value:     [8]byte{0},
+		},
 	}
 	manager.LoadRegisters(registers)
 	manager.SetOnErrorCallback(func(err error) {
 		t.Log(err)
 	})
 	manager.SetOnReadCallback(func(registers []DeviceRegister) {
-		t.Log(registers)
+		for _, register := range registers {
+			value, err := register.DecodeValue()
+			if err != nil {
+				t.Log(err)
+			}
+			t.Log("== ", register.Tag, register.Alias, register.DataType,
+				register.DataOrder, register.BitMask, register.Weight, register.Frequency, value)
+		}
 	})
-	for i := 0; i < 100; i++ {
+	manager.Start()
+	for range 100 {
 		manager.ReadGroupedData()
 	}
 	time.Sleep(1 * time.Second)

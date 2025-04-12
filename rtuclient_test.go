@@ -114,7 +114,7 @@ func Test_RTU_ClientHandler(t *testing.T) {
 	}
 	defer handler.Close()
 	client := NewClient(handler)
-	defer client.GetTransporter().Close()
+	defer client.Close()
 	t.Log(client.ReadCoils(0, 10))
 }
 func Test_TCP_ClientHandler(t *testing.T) {
@@ -128,6 +128,6 @@ func Test_TCP_ClientHandler(t *testing.T) {
 	}
 	defer handler.Close()
 	client := NewClient(handler)
-	defer client.GetTransporter().Close()
+	defer client.Close()
 	t.Log(client.ReadCoils(0, 1))
 }

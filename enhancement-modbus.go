@@ -5,6 +5,7 @@ import (
 	"sync"
 )
 
+// sort registers
 func GroupDeviceRegister(registers []DeviceRegister) [][]DeviceRegister {
 	{ // inlined sortRegisters function
 		for i := range len(registers) - 1 {
@@ -57,7 +58,7 @@ func GroupDeviceRegister(registers []DeviceRegister) [][]DeviceRegister {
 //		}
 //	}
 
-// Use waitgroup to read data from modbus server
+// Read data from modbus server concurrently
 func ReadGroupedDataConcurrently(client Client, grouped [][]DeviceRegister) [][]DeviceRegister {
 	var wg sync.WaitGroup
 	var result [][]DeviceRegister
@@ -104,6 +105,8 @@ func ReadGroupedDataConcurrently(client Client, grouped [][]DeviceRegister) [][]
 	wg.Wait()
 	return result
 }
+
+// Read data from modbus server sequentially
 func ReadGroupedDataSequential(client Client, grouped [][]DeviceRegister) [][]DeviceRegister {
 
 	var result [][]DeviceRegister

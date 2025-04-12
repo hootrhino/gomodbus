@@ -124,7 +124,7 @@ func Test_GroupDeviceRegister(t *testing.T) {
 	}
 	defer handler.Close()
 	client := NewClient(handler)
-	defer client.GetTransporter().Close()
+	defer client.Close()
 	result := client.ReadGroupedRegisterValue(input)
 	for i, group := range result {
 		for j, reg := range group {
@@ -180,7 +180,7 @@ func Test_GroupDevice_UART_125_Registers(t *testing.T) {
 	}
 	defer handler.Close()
 	client := NewClient(handler)
-	defer client.GetTransporter().Close()
+	defer client.Close()
 	testGroup(t, client, input1)
 	testGroup(t, client, input2)
 }
@@ -199,7 +199,7 @@ func Test_Group_UART_Device_1_Bool_Register(t *testing.T) {
 	}
 	defer handler.Close()
 	client := NewClient(handler)
-	defer client.GetTransporter().Close()
+	defer client.Close()
 	input1 := make([]DeviceRegister, 1)
 	for i := 0; i < 16; i++ {
 		t.Log("======= Test_Group_UART_Device_1_Bool_Register", i)
@@ -263,7 +263,7 @@ func Test_Group_TCP_Device_125_Registers(t *testing.T) {
 	}
 	defer handler.Close()
 	client := NewClient(handler)
-	defer client.GetTransporter().Close()
+	defer client.Close()
 	testGroup(t, client, input1)
 	testGroup(t, client, input2)
 }
@@ -777,7 +777,7 @@ func Benchmark_Decode_10_TCP_Registers(b *testing.B) {
 	}
 	defer handler.Close()
 	client := NewClient(handler)
-	defer client.GetTransporter().Close()
+	defer client.Close()
 	acc := 1000
 	b.Run("Decode_10_TCP_Registers", func(b *testing.B) {
 		if acc > 1000 {
