@@ -11,19 +11,20 @@ import (
 
 // DeviceRegister represents a Modbus register with metadata
 type DeviceRegister struct {
-	Tag       string  `json:"tag"`       // A unique identifier or label for the register
-	Alias     string  `json:"alias"`     // A human-readable name or alias for the register
-	Function  int     `json:"function"`  // Modbus function code (e.g., 3 for Read Holding Registers)
-	SlaverId  byte    `json:"slaverId"`  // ID of the Modbus slave device
-	Address   uint16  `json:"address"`   // Address of the register in the Modbus device
-	Frequency int64   `json:"frequency"` // Polling frequency in milliseconds
-	Quantity  uint16  `json:"quantity"`  // Number of registers to read/write
-	DataType  string  `json:"dataType"`  // Data type of the register value (e.g., uint16, int32, float32)
-	BitMask   uint16  `json:"bitMask"`   // Bitmask for bit-level operations (e.g., 0x01, 0x02)
-	DataOrder string  `json:"dataOrder"` // Byte order for multi-byte values (e.g., ABCD, DCBA)
-	Weight    float64 `json:"weight"`    // Scaling factor for the register value
-	Status    string  `json:"status"`    // Status of the register (e.g., "OK", "Error")
-	Value     [8]byte `json:"value"`     // Raw value of the register as a byte array
+	Tag          string  `json:"tag"`          // A unique identifier or label for the register
+	Alias        string  `json:"alias"`        // A human-readable name or alias for the register
+	SlaverId     uint8   `json:"slaverId"`     // ID of the Modbus slave device
+	Function     uint8   `json:"function"`     // Modbus function code (e.g., 3 for Read Holding Registers)
+	ReadAddress  uint16  `json:"readAddress"`  // Address of the register in the Modbus device
+	ReadQuantity uint16  `json:"readQuantity"` // Number of registers to read/write
+	DataType     string  `json:"dataType"`     // Data type of the register value (e.g., uint16, int32, float32)
+	DataOrder    string  `json:"dataOrder"`    // Byte order for multi-byte values (e.g., ABCD, DCBA)
+	BitPosition  uint16  `json:"bitPosition"`  // bit position for bit-level operations (e.g., 0, 1, 2)
+	BitMask      uint16  `json:"bitMask"`      // Bitmask for bit-level operations (e.g., 0x01, 0x02)
+	Weight       float64 `json:"weight"`       // Scaling factor for the register value
+	Frequency    uint64  `json:"frequency"`    // Polling frequency in milliseconds
+	Value        [8]byte `json:"value"`        // Raw value of the register as a byte array
+	Status       string  `json:"status"`       // Status of the register (e.g., "OK", "Error")
 }
 
 // Encode Bytes
@@ -59,9 +60,14 @@ func (r DeviceRegister) DecodeValue() (DecodedValue, error) {
 	res := DecodedValue{Raw: bytes}
 
 	switch r.DataType {
+	case "bitfield":
+		Uint16 := binary.BigEndian.Uint16(bytes[:2])
+		Uint16 = Uint16 & r.BitMask
+		res.AsType = Uint16
+		res.Float64 = float64(Uint16) * r.Weight
 	case "bool":
 		Uint16 := binary.BigEndian.Uint16(bytes[:2])
-		res.AsType = CheckBit(Uint16, r.BitMask)
+		res.AsType = CheckBit(Uint16, r.BitPosition)
 		res.Float64 = 0
 		if res.AsType.(bool) {
 			res.Float64 = 1

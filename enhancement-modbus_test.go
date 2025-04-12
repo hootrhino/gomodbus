@@ -94,13 +94,13 @@ func Test_float64FromBits(t *testing.T) {
 // go test -timeout 30s -run ^Test_GroupDeviceRegister$ github.com/hootrhino/gomodbus -v -count=1
 func Test_GroupDeviceRegister(t *testing.T) {
 	input := []DeviceRegister{
-		{Tag: "F", Alias: "A6", SlaverId: 1, Function: 3, Address: 1, Quantity: 1},
-		{Tag: "A", Alias: "A1", SlaverId: 1, Function: 3, Address: 2, Quantity: 1},
-		{Tag: "B", Alias: "A2", SlaverId: 1, Function: 3, Address: 4, Quantity: 1},
-		{Tag: "C", Alias: "A3", SlaverId: 1, Function: 3, Address: 5, Quantity: 1},
-		{Tag: "D", Alias: "A4", SlaverId: 1, Function: 3, Address: 8, Quantity: 1},
-		{Tag: "E", Alias: "A5", SlaverId: 1, Function: 3, Address: 9, Quantity: 1},
-		{Tag: "G", Alias: "A7", SlaverId: 1, Function: 3, Address: 10, Quantity: 1},
+		{Tag: "F", Alias: "A6", SlaverId: 1, Function: 3, ReadAddress: 1, ReadQuantity: 1},
+		{Tag: "A", Alias: "A1", SlaverId: 1, Function: 3, ReadAddress: 2, ReadQuantity: 1},
+		{Tag: "B", Alias: "A2", SlaverId: 1, Function: 3, ReadAddress: 4, ReadQuantity: 1},
+		{Tag: "C", Alias: "A3", SlaverId: 1, Function: 3, ReadAddress: 5, ReadQuantity: 1},
+		{Tag: "D", Alias: "A4", SlaverId: 1, Function: 3, ReadAddress: 8, ReadQuantity: 1},
+		{Tag: "E", Alias: "A5", SlaverId: 1, Function: 3, ReadAddress: 9, ReadQuantity: 1},
+		{Tag: "G", Alias: "A7", SlaverId: 1, Function: 3, ReadAddress: 10, ReadQuantity: 1},
 	}
 
 	{
@@ -129,7 +129,7 @@ func Test_GroupDeviceRegister(t *testing.T) {
 	result := client.ReadGroupedRegisterValue(input)
 	for i, group := range result {
 		for j, reg := range group {
-			t.Logf("======= group->%v  reg=%v  Address= %v  Tag= %v", i, j, reg.Address, reg.Tag)
+			t.Logf("======= group->%v  reg=%v  Address= %v  Tag= %v", i, j, reg.ReadAddress, reg.Tag)
 		}
 	}
 }
@@ -139,13 +139,13 @@ func Test_GroupDevice_UART_125_Registers(t *testing.T) {
 	// Group 1: 1-25
 	input1 := make([]DeviceRegister, 10)
 	for i := 0; i < 10; i++ {
-		input1[i].Address = uint16(i + 1)
+		input1[i].ReadAddress = uint16(i + 1)
 		input1[i].Tag = fmt.Sprintf("Tag%d", i+1)
 		input1[i].Alias = fmt.Sprintf("Alias%d", i+1)
 		input1[i].Function = 3
 		input1[i].SlaverId = 1
 		input1[i].Frequency = 1
-		input1[i].Quantity = 1
+		input1[i].ReadQuantity = 1
 		input1[i].DataType = "uint16"
 		input1[i].DataOrder = "ABCD"
 		input1[i].Weight = 1.0
@@ -153,13 +153,13 @@ func Test_GroupDevice_UART_125_Registers(t *testing.T) {
 	}
 	input2 := make([]DeviceRegister, 10)
 	for i := 26; i < 36; i++ {
-		input2[i-26].Address = uint16(i + 1)
+		input2[i-26].ReadAddress = uint16(i + 1)
 		input2[i-26].Tag = fmt.Sprintf("Tag%d", i+1)
 		input2[i-26].Alias = fmt.Sprintf("Alias%d", i+1)
 		input2[i-26].Function = 3
 		input2[i-26].SlaverId = 1
 		input2[i-26].Frequency = 1
-		input2[i-26].Quantity = 1
+		input2[i-26].ReadQuantity = 1
 		input2[i-26].DataType = "uint16"
 		input2[i-26].DataOrder = "ABCD"
 		input2[i-26].Weight = 1.0
@@ -204,18 +204,18 @@ func Test_Group_UART_Device_1_Bool_Register(t *testing.T) {
 	input1 := make([]DeviceRegister, 1)
 	for i := 0; i < 16; i++ {
 		t.Log("======= Test_Group_UART_Device_1_Bool_Register", i)
-		input1[0].Address = uint16(4) // 0000 0000 0000 0100
+		input1[0].ReadAddress = uint16(4) // 0000 0000 0000 0100
 		input1[0].Tag = "Tag1"
 		input1[0].Alias = "Alias1"
 		input1[0].Function = 3
 		input1[0].SlaverId = 1
 		input1[0].Frequency = 1
-		input1[0].Quantity = 1
+		input1[0].ReadQuantity = 1
 		input1[0].DataType = "bool"
 		input1[0].DataOrder = "A"
 		input1[0].Weight = 1.0
 		input1[0].Value = [8]byte{0, 0, 0, 0}
-		input1[0].BitMask = uint16(i)
+		input1[0].BitPosition = uint16(i)
 		testGroup(t, client, input1)
 	}
 
@@ -226,13 +226,13 @@ func Test_Group_TCP_Device_125_Registers(t *testing.T) {
 	// Group 1: 1-25
 	input1 := make([]DeviceRegister, 10)
 	for i := 0; i < 10; i++ {
-		input1[i].Address = uint16(i + 1)
+		input1[i].ReadAddress = uint16(i + 1)
 		input1[i].Tag = fmt.Sprintf("Tag%d", i+1)
 		input1[i].Alias = fmt.Sprintf("Alias%d", i+1)
 		input1[i].Function = 3
 		input1[i].SlaverId = 1
 		input1[i].Frequency = 1
-		input1[i].Quantity = 1
+		input1[i].ReadQuantity = 1
 		input1[i].DataType = "uint16"
 		input1[i].DataOrder = "ABCD"
 		input1[i].Weight = 1.0
@@ -240,13 +240,13 @@ func Test_Group_TCP_Device_125_Registers(t *testing.T) {
 	}
 	input2 := make([]DeviceRegister, 10)
 	for i := 26; i < 36; i++ {
-		input2[i-26].Address = uint16(i + 1)
+		input2[i-26].ReadAddress = uint16(i + 1)
 		input2[i-26].Tag = fmt.Sprintf("Tag%d", i+1)
 		input2[i-26].Alias = fmt.Sprintf("Alias%d", i+1)
 		input2[i-26].Function = 3
 		input2[i-26].SlaverId = 1
 		input2[i-26].Frequency = 1
-		input2[i-26].Quantity = 1
+		input2[i-26].ReadQuantity = 1
 		input2[i-26].DataType = "uint16"
 		input2[i-26].DataOrder = "ABCD"
 		input2[i-26].Weight = 1.0
@@ -299,7 +299,7 @@ V.Float64: %v
 =================================
 `,
 				reg.Tag, reg.Alias, reg.SlaverId,
-				reg.Function, reg.Address, reg.Quantity,
+				reg.Function, reg.ReadAddress, reg.ReadQuantity,
 				reg.DataOrder, reg.DataType, reg.Weight, reg.Value, reg.Status,
 				decodeValue.AsType, decodeValue.GetFloat64Value(4))
 		}
@@ -316,9 +316,9 @@ func Test_DeviceRegister_DecodeValue(t *testing.T) {
 		{
 			name: "bool",
 			register: DeviceRegister{
-				DataType: "bool",
-				BitMask:  0x01,
-				Value:    [8]byte{0x03, 0x00, 0x00, 0x00}, // 0x03 & 0x01 = 0x01
+				DataType:    "bool",
+				BitPosition: 0x01,
+				Value:       [8]byte{0x03, 0x00, 0x00, 0x00}, // 0x03 & 0x01 = 0x01
 			},
 			expect: DecodedValue{
 				Raw:     []byte{0x03},
@@ -484,93 +484,85 @@ func compare2BytesEqual(a, b [8]byte) bool {
 	return valA == valB
 }
 
-// LoadRegisterFromCSV loads Modbus registers from a CSV file into a slice of DeviceRegister
 func LoadRegisterFromCSV(filePath string) ([]DeviceRegister, error) {
-	// Open the CSV file
 	file, err := os.Open(filePath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open file: %v", err)
+		return nil, err
 	}
 	defer file.Close()
 
-	// Parse the CSV file
 	reader := csv.NewReader(file)
 	records, err := reader.ReadAll()
 	if err != nil {
-		return nil, fmt.Errorf("failed to read CSV file: %v", err)
+		return nil, err
 	}
 
-	// Ensure there is at least a header row
-	if len(records) < 2 {
-		return nil, fmt.Errorf("CSV file must contain at least a header and one data row")
+	// 跳过表头
+	if len(records) == 0 {
+		return nil, nil
 	}
+	records = records[1:]
 
-	// Parse the header row (optional, for validation)
-	header := records[0]
-	expectedHeader := []string{"Tag", "Alias", "Function", "SlaveId", "Address", "Frequency", "Quantity", "DataType", "BitMask", "DataOrder", "Weight"}
-	if len(header) != len(expectedHeader) {
-		return nil, fmt.Errorf("CSV header does not match expected format")
-	}
-
-	// Parse the data rows
 	var registers []DeviceRegister
-	for _, row := range records[1:] {
-		if len(row) != len(expectedHeader) {
-			return nil, fmt.Errorf("row length does not match header length: %v", row)
+	for _, record := range records {
+		if len(record) != 12 {
+			return nil, fmt.Errorf("invalid record length: %d", len(record))
 		}
 
-		// Parse each field
-		function, err := strconv.Atoi(row[2])
+		slaverId, err := strconv.Atoi(record[2])
 		if err != nil {
-			return nil, fmt.Errorf("invalid Function value: %v", row[2])
+			return nil, err
 		}
 
-		slaveId, err := strconv.Atoi(row[3])
+		function, err := strconv.Atoi(record[3])
 		if err != nil {
-			return nil, fmt.Errorf("invalid SlaveId value: %v", row[3])
+			return nil, err
 		}
 
-		address, err := strconv.Atoi(row[4])
+		readAddress, err := strconv.Atoi(record[4])
 		if err != nil {
-			return nil, fmt.Errorf("invalid Address value: %v", row[4])
+			return nil, err
 		}
 
-		frequency, err := strconv.ParseInt(row[5], 10, 64)
+		readQuantity, err := strconv.Atoi(record[5])
 		if err != nil {
-			return nil, fmt.Errorf("invalid Frequency value: %v", row[5])
+			return nil, err
 		}
 
-		quantity, err := strconv.Atoi(row[6])
+		bitPosition, err := strconv.Atoi(record[8])
 		if err != nil {
-			return nil, fmt.Errorf("invalid Quantity value: %v", row[6])
+			return nil, err
 		}
 
-		bitMask, err := strconv.Atoi(row[8])
+		bitMask, err := strconv.Atoi(record[9])
 		if err != nil {
-			return nil, fmt.Errorf("invalid BitMask value: %v", row[8])
+			return nil, err
 		}
 
-		weight, err := strconv.ParseFloat(row[10], 64)
+		weight, err := strconv.ParseFloat(record[10], 64)
 		if err != nil {
-			return nil, fmt.Errorf("invalid Weight value: %v", row[10])
+			return nil, err
 		}
 
-		// Create a DeviceRegister instance
+		frequency, err := strconv.ParseUint(record[11], 10, 64)
+		if err != nil {
+			return nil, err
+		}
+
 		register := DeviceRegister{
-			Tag:       row[0],
-			Alias:     row[1],
-			Function:  function,
-			SlaverId:  byte(slaveId),
-			Address:   uint16(address),
-			Frequency: frequency,
-			Quantity:  uint16(quantity),
-			DataType:  row[7],
-			BitMask:   uint16(bitMask),
-			DataOrder: row[9],
-			Weight:    weight,
+			Tag:          record[0],
+			Alias:        record[1],
+			SlaverId:     uint8(slaverId),
+			Function:     uint8(function),
+			ReadAddress:  uint16(readAddress),
+			ReadQuantity: uint16(readQuantity),
+			DataType:     record[6],
+			DataOrder:    record[7],
+			BitPosition:  uint16(bitPosition),
+			BitMask:      uint16(bitMask),
+			Weight:       weight,
+			Frequency:    frequency,
 		}
-
-		// Append to the result slice
 		registers = append(registers, register)
 	}
 
@@ -584,7 +576,7 @@ type testMqttData struct {
 }
 
 func Test_LoadRegisterFromCSV(t *testing.T) {
-	filePath := "./test/test-sheet.csv"
+	filePath := "./test/modbus_registers.csv"
 	registers, err1 := LoadRegisterFromCSV(filePath)
 	if err1 != nil {
 		t.Fatalf("Failed to load registers from CSV: %v", err1)
@@ -631,7 +623,7 @@ func Test_LoadRegisterFromCSV(t *testing.T) {
 			t.Log(string(jsonData))
 
 			// t.Log("== ", register.Tag, register.Alias, register.DataType,
-			// 	register.DataOrder, register.BitMask, register.Weight, register.Frequency, value)
+			// 	register.DataOrder, register.BitPosition, register.Weight, register.Frequency, value)
 		}
 	})
 	manager.Start()
@@ -658,9 +650,9 @@ func Test_DeviceRegister_Decode_Bool_true_Value(t *testing.T) {
 		}{
 			name: fmt.Sprintf("bool-%v", i),
 			register: DeviceRegister{
-				DataType: "bool",
-				BitMask:  uint16(i),
-				Value:    [8]byte{0xFF, 0xFF, 0xFF, 0xFF},
+				DataType:    "bool",
+				BitPosition: uint16(i),
+				Value:       [8]byte{0xFF, 0xFF, 0xFF, 0xFF},
 			},
 			expect: DecodedValue{
 				Raw:     []byte{0xFF, 0xFF, 0xFF, 0xFF},
@@ -704,9 +696,9 @@ func Test_DeviceRegister_Decode_Bool_false_Value(t *testing.T) {
 		}{
 			name: fmt.Sprintf("bool-%v", i),
 			register: DeviceRegister{
-				DataType: "bool",
-				BitMask:  uint16(i),
-				Value:    [8]byte{0x0},
+				DataType:    "bool",
+				BitPosition: uint16(i),
+				Value:       [8]byte{0x0},
 			},
 			expect: DecodedValue{
 				Raw:     []byte{0x0},
@@ -748,13 +740,13 @@ func Benchmark_Decode_10_TCP_Registers(b *testing.B) {
 			reg1.Alias = fmt.Sprintf("Alias-bool-%d-%d", 1, i)
 			reg1.SlaverId = 1
 			reg1.Function = 1
-			reg1.Address = 0
-			reg1.Quantity = 1
+			reg1.ReadAddress = 0
+			reg1.ReadQuantity = 1
 			reg1.DataType = "bool"
 			reg1.DataOrder = "A"
 			reg1.Frequency = 10
 			reg1.Weight = 1
-			reg1.BitMask = uint16(i)
+			reg1.BitPosition = uint16(i)
 			reg1.Value = [8]byte{0}
 			input1 = append(input1, reg1)
 		}
@@ -767,8 +759,8 @@ func Benchmark_Decode_10_TCP_Registers(b *testing.B) {
 			reg1.Alias = fmt.Sprintf("Alias-%d-%d", 2, i)
 			reg1.SlaverId = 1
 			reg1.Function = 2
-			reg1.Address = uint16(i)
-			reg1.Quantity = 1
+			reg1.ReadAddress = uint16(i)
+			reg1.ReadQuantity = 1
 			reg1.DataType = "uint16"
 			reg1.DataOrder = "AB"
 			reg1.Frequency = 10
@@ -785,8 +777,8 @@ func Benchmark_Decode_10_TCP_Registers(b *testing.B) {
 			reg1.Alias = fmt.Sprintf("Alias-%d-%d", 3, i)
 			reg1.SlaverId = 1
 			reg1.Function = 3
-			reg1.Address = uint16(i)
-			reg1.Quantity = 1
+			reg1.ReadAddress = uint16(i)
+			reg1.ReadQuantity = 1
 			reg1.DataType = "uint16"
 			reg1.DataOrder = "AB"
 			reg1.Frequency = 10
@@ -803,8 +795,8 @@ func Benchmark_Decode_10_TCP_Registers(b *testing.B) {
 			reg1.Alias = fmt.Sprintf("Alias-%d-%d", 4, i)
 			reg1.SlaverId = 1
 			reg1.Function = 4
-			reg1.Address = uint16(i)
-			reg1.Quantity = 1
+			reg1.ReadAddress = uint16(i)
+			reg1.ReadQuantity = 1
 			reg1.DataType = "uint16"
 			reg1.DataOrder = "AB"
 			reg1.Frequency = 10

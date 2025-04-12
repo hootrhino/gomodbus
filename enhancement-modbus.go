@@ -15,7 +15,7 @@ func GroupDeviceRegister(registers []DeviceRegister) [][]DeviceRegister {
 						registers[j].Function > registers[j+1].Function) ||
 					(registers[j].SlaverId == registers[j+1].SlaverId &&
 						registers[j].Function == registers[j+1].Function &&
-						registers[j].Address > registers[j+1].Address) {
+						registers[j].ReadAddress > registers[j+1].ReadAddress) {
 					registers[j], registers[j+1] = registers[j+1], registers[j]
 				}
 			}
@@ -30,7 +30,7 @@ func GroupDeviceRegister(registers []DeviceRegister) [][]DeviceRegister {
 			current := registers[i]
 			if current.SlaverId == last.SlaverId &&
 				current.Function == last.Function &&
-				current.Address == last.Address+last.Quantity {
+				current.ReadAddress == last.ReadAddress+last.ReadAddress {
 				currentGroup = append(currentGroup, current)
 				last = current
 				i++
@@ -67,10 +67,10 @@ func ReadGroupedDataConcurrently(client Client, grouped [][]DeviceRegister) [][]
 		wg.Add(1)
 		go func(group []DeviceRegister) {
 			defer wg.Done()
-			start := group[0].Address
+			start := group[0].ReadAddress
 			var totalQuantity uint16
 			for _, reg := range group {
-				totalQuantity += reg.Quantity
+				totalQuantity += reg.ReadAddress
 			}
 			var data []byte
 			var err error
@@ -95,9 +95,9 @@ func ReadGroupedDataConcurrently(client Client, grouped [][]DeviceRegister) [][]
 			defer mu.Unlock()
 			offset := 0
 			for i := range group {
-				copy(group[i].Value[:group[i].Quantity*2], data[offset:offset+int(group[i].Quantity*2)])
+				copy(group[i].Value[:group[i].ReadQuantity*2], data[offset:offset+int(group[i].ReadQuantity*2)])
 				group[i].Status = "VALID:OK"
-				offset += int(group[i].Quantity * 2)
+				offset += int(group[i].ReadQuantity * 2)
 			}
 			result = append(result, group)
 		}(group)
@@ -111,10 +111,10 @@ func ReadGroupedDataSequential(client Client, grouped [][]DeviceRegister) [][]De
 
 	var result [][]DeviceRegister
 	for _, group := range grouped {
-		start := group[0].Address
+		start := group[0].ReadAddress
 		var totalQuantity uint16
 		for _, reg := range group {
-			totalQuantity += reg.Quantity
+			totalQuantity += reg.ReadQuantity
 		}
 		var data []byte
 		var err error
@@ -139,9 +139,9 @@ func ReadGroupedDataSequential(client Client, grouped [][]DeviceRegister) [][]De
 		} else {
 			offset := 0
 			for i := range group {
-				copy(group[i].Value[:group[i].Quantity*2], data[offset:offset+int(group[i].Quantity*2)])
+				copy(group[i].Value[:group[i].ReadQuantity*2], data[offset:offset+int(group[i].ReadQuantity*2)])
 				group[i].Status = "VALID:OK"
-				offset += int(group[i].Quantity * 2)
+				offset += int(group[i].ReadQuantity * 2)
 			}
 		}
 		result = append(result, group)
