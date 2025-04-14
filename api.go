@@ -46,6 +46,11 @@ type Client interface {
 	//ReadFIFOQueue reads the contents of a First-In-First-Out (FIFO) queue
 	// of register in a remote device and returns FIFO value register.
 	ReadFIFOQueue(address uint16) (results []byte, err error)
+	// ReadDeviceIdentification reads all the Basic and Regular identification strings
+	// from the device. If firstExtendedID is >= 0x80, it will also read the Extended strings,
+	// starting from the specified one.
+	// It returns a map with the retrieved strings.
+	ReadDeviceIdentification(firstExtendedID byte) (results map[byte]string, err error)
 	// GroupReadData reads batches of grouped registers using the provided Modbus client
 	ReadGroupedRegisterValue([]DeviceRegister) [][]DeviceRegister
 	//
