@@ -1,6 +1,11 @@
-## go-modbus
+<div style="text-align: center;">
+<h1>go-modbus</h1>
+  <img src="./readme/logo.png" alt="logo" width="90px">
+  <h2>
+  Fault-tolerant, fail-fast implementation of Modbus protocol in Go.
+  </h2>
+</div>
 
-Fault-tolerant, fail-fast implementation of Modbus protocol in Go.
 
 ## Supported functions
 ### Bit access:
