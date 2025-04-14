@@ -5,7 +5,6 @@
 package test
 
 import (
-	"log"
 	"os"
 	"testing"
 
@@ -30,7 +29,7 @@ func TestRTUClientAdvancedUsage(t *testing.T) {
 	handler.Parity = "E"
 	handler.StopBits = 1
 	handler.SlaveId = 11
-	handler.Logger = log.New(os.Stdout, "rtu: ", log.LstdFlags)
+	handler.Logger = modbus.NewSimpleLogger(os.Stdout, modbus.LevelDebug)
 	err := handler.Connect()
 	if err != nil {
 		t.Fatal(err)

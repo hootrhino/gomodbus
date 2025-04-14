@@ -13,21 +13,56 @@ import (
 type ClientHandler interface {
 	Packager
 	Transporter
+	Type() string
 }
 
 type client struct {
 	packager    Packager
 	transporter Transporter
+	handler     ClientHandler
+	clientType  string
 }
 
 // NewClient creates a new modbus client with given backend handler.
 func NewClient(handler ClientHandler) Client {
-	return &client{packager: handler, transporter: handler}
+	return &client{
+		packager:    handler,
+		transporter: handler,
+		handler:     handler,
+		clientType:  handler.Type(),
+	}
+}
+
+func (mb *client) GetHandlerType() string {
+	return mb.handler.Type()
+}
+
+func (mb *client) Close() error {
+	if mb.transporter != nil {
+		return mb.transporter.Close()
+	}
+	return nil
 }
 
 // NewClient2 creates a new modbus client with given backend packager and transporter.
-func NewClient2(packager Packager, transporter Transporter) Client {
+func NewClientWithTransporter(packager Packager, transporter Transporter) Client {
 	return &client{packager: packager, transporter: transporter}
+}
+
+// GroupReadData reads batches of grouped registers using the provided Modbus client
+func (mb *client) ReadGroupedRegisterValue(registers []DeviceRegister) [][]DeviceRegister {
+	return mb.groupReadData(GroupDeviceRegister(registers))
+}
+
+// ReadData reads batches of grouped registers using the provided Modbus client
+func (mb *client) groupReadData(registers [][]DeviceRegister) [][]DeviceRegister {
+	if mb.clientType == "TCP" {
+		return ReadGroupedDataConcurrently(mb, registers)
+	}
+	return ReadGroupedDataSequential(mb, registers)
+}
+func (mb *client) Type() string {
+	return mb.clientType
 }
 
 // get Transporter
@@ -36,13 +71,16 @@ func (mb *client) GetTransporter() Transporter {
 }
 
 // Request:
-//  Function code         : 1 byte (0x01)
-//  Starting address      : 2 bytes
-//  Quantity of coils     : 2 bytes
+//
+//	Function code         : 1 byte (0x01)
+//	Starting address      : 2 bytes
+//	Quantity of coils     : 2 bytes
+//
 // Response:
-//  Function code         : 1 byte (0x01)
-//  Byte count            : 1 byte
-//  Coil status           : N* bytes (=N or N+1)
+//
+//	Function code         : 1 byte (0x01)
+//	Byte count            : 1 byte
+//	Coil status           : N* bytes (=N or N+1)
 func (mb *client) ReadCoils(address, quantity uint16) (results []byte, err error) {
 	if quantity < 1 || quantity > 2000 {
 		err = fmt.Errorf("modbus: quantity '%v' must be between '%v' and '%v',", quantity, 1, 2000)
@@ -67,13 +105,16 @@ func (mb *client) ReadCoils(address, quantity uint16) (results []byte, err error
 }
 
 // Request:
-//  Function code         : 1 byte (0x02)
-//  Starting address      : 2 bytes
-//  Quantity of inputs    : 2 bytes
+//
+//	Function code         : 1 byte (0x02)
+//	Starting address      : 2 bytes
+//	Quantity of inputs    : 2 bytes
+//
 // Response:
-//  Function code         : 1 byte (0x02)
-//  Byte count            : 1 byte
-//  Input status          : N* bytes (=N or N+1)
+//
+//	Function code         : 1 byte (0x02)
+//	Byte count            : 1 byte
+//	Input status          : N* bytes (=N or N+1)
 func (mb *client) ReadDiscreteInputs(address, quantity uint16) (results []byte, err error) {
 	if quantity < 1 || quantity > 2000 {
 		err = fmt.Errorf("modbus: quantity '%v' must be between '%v' and '%v',", quantity, 1, 2000)
@@ -98,13 +139,16 @@ func (mb *client) ReadDiscreteInputs(address, quantity uint16) (results []byte, 
 }
 
 // Request:
-//  Function code         : 1 byte (0x03)
-//  Starting address      : 2 bytes
-//  Quantity of registers : 2 bytes
+//
+//	Function code         : 1 byte (0x03)
+//	Starting address      : 2 bytes
+//	Quantity of registers : 2 bytes
+//
 // Response:
-//  Function code         : 1 byte (0x03)
-//  Byte count            : 1 byte
-//  Register value        : Nx2 bytes
+//
+//	Function code         : 1 byte (0x03)
+//	Byte count            : 1 byte
+//	Register value        : Nx2 bytes
 func (mb *client) ReadHoldingRegisters(address, quantity uint16) (results []byte, err error) {
 	if quantity < 1 || quantity > 125 {
 		err = fmt.Errorf("modbus: quantity '%v' must be between '%v' and '%v',", quantity, 1, 125)
@@ -129,13 +173,16 @@ func (mb *client) ReadHoldingRegisters(address, quantity uint16) (results []byte
 }
 
 // Request:
-//  Function code         : 1 byte (0x04)
-//  Starting address      : 2 bytes
-//  Quantity of registers : 2 bytes
+//
+//	Function code         : 1 byte (0x04)
+//	Starting address      : 2 bytes
+//	Quantity of registers : 2 bytes
+//
 // Response:
-//  Function code         : 1 byte (0x04)
-//  Byte count            : 1 byte
-//  Input registers       : N bytes
+//
+//	Function code         : 1 byte (0x04)
+//	Byte count            : 1 byte
+//	Input registers       : N bytes
 func (mb *client) ReadInputRegisters(address, quantity uint16) (results []byte, err error) {
 	if quantity < 1 || quantity > 125 {
 		err = fmt.Errorf("modbus: quantity '%v' must be between '%v' and '%v',", quantity, 1, 125)
@@ -160,13 +207,16 @@ func (mb *client) ReadInputRegisters(address, quantity uint16) (results []byte, 
 }
 
 // Request:
-//  Function code         : 1 byte (0x05)
-//  Output address        : 2 bytes
-//  Output value          : 2 bytes
+//
+//	Function code         : 1 byte (0x05)
+//	Output address        : 2 bytes
+//	Output value          : 2 bytes
+//
 // Response:
-//  Function code         : 1 byte (0x05)
-//  Output address        : 2 bytes
-//  Output value          : 2 bytes
+//
+//	Function code         : 1 byte (0x05)
+//	Output address        : 2 bytes
+//	Output value          : 2 bytes
 func (mb *client) WriteSingleCoil(address, value uint16) (results []byte, err error) {
 	// The requested ON/OFF state can only be 0xFF00 and 0x0000
 	if value != 0xFF00 && value != 0x0000 {
@@ -201,13 +251,16 @@ func (mb *client) WriteSingleCoil(address, value uint16) (results []byte, err er
 }
 
 // Request:
-//  Function code         : 1 byte (0x06)
-//  Register address      : 2 bytes
-//  Register value        : 2 bytes
+//
+//	Function code         : 1 byte (0x06)
+//	Register address      : 2 bytes
+//	Register value        : 2 bytes
+//
 // Response:
-//  Function code         : 1 byte (0x06)
-//  Register address      : 2 bytes
-//  Register value        : 2 bytes
+//
+//	Function code         : 1 byte (0x06)
+//	Register address      : 2 bytes
+//	Register value        : 2 bytes
 func (mb *client) WriteSingleRegister(address, value uint16) (results []byte, err error) {
 	request := ProtocolDataUnit{
 		FunctionCode: FuncCodeWriteSingleRegister,
@@ -237,15 +290,18 @@ func (mb *client) WriteSingleRegister(address, value uint16) (results []byte, er
 }
 
 // Request:
-//  Function code         : 1 byte (0x0F)
-//  Starting address      : 2 bytes
-//  Quantity of outputs   : 2 bytes
-//  Byte count            : 1 byte
-//  Outputs value         : N* bytes
+//
+//	Function code         : 1 byte (0x0F)
+//	Starting address      : 2 bytes
+//	Quantity of outputs   : 2 bytes
+//	Byte count            : 1 byte
+//	Outputs value         : N* bytes
+//
 // Response:
-//  Function code         : 1 byte (0x0F)
-//  Starting address      : 2 bytes
-//  Quantity of outputs   : 2 bytes
+//
+//	Function code         : 1 byte (0x0F)
+//	Starting address      : 2 bytes
+//	Quantity of outputs   : 2 bytes
 func (mb *client) WriteMultipleCoils(address, quantity uint16, value []byte) (results []byte, err error) {
 	if quantity < 1 || quantity > 1968 {
 		err = fmt.Errorf("modbus: quantity '%v' must be between '%v' and '%v',", quantity, 1, 1968)
@@ -279,15 +335,18 @@ func (mb *client) WriteMultipleCoils(address, quantity uint16, value []byte) (re
 }
 
 // Request:
-//  Function code         : 1 byte (0x10)
-//  Starting address      : 2 bytes
-//  Quantity of outputs   : 2 bytes
-//  Byte count            : 1 byte
-//  Registers value       : N* bytes
+//
+//	Function code         : 1 byte (0x10)
+//	Starting address      : 2 bytes
+//	Quantity of outputs   : 2 bytes
+//	Byte count            : 1 byte
+//	Registers value       : N* bytes
+//
 // Response:
-//  Function code         : 1 byte (0x10)
-//  Starting address      : 2 bytes
-//  Quantity of registers : 2 bytes
+//
+//	Function code         : 1 byte (0x10)
+//	Starting address      : 2 bytes
+//	Quantity of registers : 2 bytes
 func (mb *client) WriteMultipleRegisters(address, quantity uint16, value []byte) (results []byte, err error) {
 	if quantity < 1 || quantity > 123 {
 		err = fmt.Errorf("modbus: quantity '%v' must be between '%v' and '%v',", quantity, 1, 123)
@@ -321,15 +380,18 @@ func (mb *client) WriteMultipleRegisters(address, quantity uint16, value []byte)
 }
 
 // Request:
-//  Function code         : 1 byte (0x16)
-//  Reference address     : 2 bytes
-//  AND-mask              : 2 bytes
-//  OR-mask               : 2 bytes
+//
+//	Function code         : 1 byte (0x16)
+//	Reference address     : 2 bytes
+//	AND-mask              : 2 bytes
+//	OR-mask               : 2 bytes
+//
 // Response:
-//  Function code         : 1 byte (0x16)
-//  Reference address     : 2 bytes
-//  AND-mask              : 2 bytes
-//  OR-mask               : 2 bytes
+//
+//	Function code         : 1 byte (0x16)
+//	Reference address     : 2 bytes
+//	AND-mask              : 2 bytes
+//	OR-mask               : 2 bytes
 func (mb *client) MaskWriteRegister(address, andMask, orMask uint16) (results []byte, err error) {
 	request := ProtocolDataUnit{
 		FunctionCode: FuncCodeMaskWriteRegister,
@@ -364,17 +426,20 @@ func (mb *client) MaskWriteRegister(address, andMask, orMask uint16) (results []
 }
 
 // Request:
-//  Function code         : 1 byte (0x17)
-//  Read starting address : 2 bytes
-//  Quantity to read      : 2 bytes
-//  Write starting address: 2 bytes
-//  Quantity to write     : 2 bytes
-//  Write byte count      : 1 byte
-//  Write registers value : N* bytes
+//
+//	Function code         : 1 byte (0x17)
+//	Read starting address : 2 bytes
+//	Quantity to read      : 2 bytes
+//	Write starting address: 2 bytes
+//	Quantity to write     : 2 bytes
+//	Write byte count      : 1 byte
+//	Write registers value : N* bytes
+//
 // Response:
-//  Function code         : 1 byte (0x17)
-//  Byte count            : 1 byte
-//  Read registers value  : Nx2 bytes
+//
+//	Function code         : 1 byte (0x17)
+//	Byte count            : 1 byte
+//	Read registers value  : Nx2 bytes
 func (mb *client) ReadWriteMultipleRegisters(readAddress, readQuantity, writeAddress, writeQuantity uint16, value []byte) (results []byte, err error) {
 	if readQuantity < 1 || readQuantity > 125 {
 		err = fmt.Errorf("modbus: quantity to read '%v' must be between '%v' and '%v',", readQuantity, 1, 125)
@@ -402,14 +467,17 @@ func (mb *client) ReadWriteMultipleRegisters(readAddress, readQuantity, writeAdd
 }
 
 // Request:
-//  Function code         : 1 byte (0x18)
-//  FIFO pointer address  : 2 bytes
+//
+//	Function code         : 1 byte (0x18)
+//	FIFO pointer address  : 2 bytes
+//
 // Response:
-//  Function code         : 1 byte (0x18)
-//  Byte count            : 2 bytes
-//  FIFO count            : 2 bytes
-//  FIFO count            : 2 bytes (<=31)
-//  FIFO value register   : Nx2 bytes
+//
+//	Function code         : 1 byte (0x18)
+//	Byte count            : 2 bytes
+//	FIFO count            : 2 bytes
+//	FIFO count            : 2 bytes (<=31)
+//	FIFO value register   : Nx2 bytes
 func (mb *client) ReadFIFOQueue(address uint16) (results []byte, err error) {
 	request := ProtocolDataUnit{
 		FunctionCode: FuncCodeReadFIFOQueue,
@@ -461,7 +529,7 @@ func (mb *client) send(request *ProtocolDataUnit) (response *ProtocolDataUnit, e
 		err = responseError(response)
 		return
 	}
-	if response.Data == nil || len(response.Data) == 0 {
+	if len(response.Data) == 0 {
 		// Empty response
 		err = fmt.Errorf("modbus: response data is empty")
 		return
@@ -492,7 +560,7 @@ func dataBlockSuffix(suffix []byte, value ...uint16) []byte {
 
 func responseError(response *ProtocolDataUnit) error {
 	mbError := &ModbusError{FunctionCode: response.FunctionCode}
-	if response.Data != nil && len(response.Data) > 0 {
+	if len(response.Data) > 0 {
 		mbError.ExceptionCode = response.Data[0]
 	}
 	return mbError

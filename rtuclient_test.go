@@ -6,7 +6,7 @@ package modbus
 
 import (
 	"bytes"
-	"log"
+
 	"os"
 	"testing"
 )
@@ -38,7 +38,7 @@ func TestRTUDecoding(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if 16 != pdu.FunctionCode {
+	if pdu.FunctionCode != 16 {
 		t.Fatalf("Function code: expected %v, actual %v", 16, pdu.FunctionCode)
 	}
 	expected := []byte{0x8A, 0x00, 0x00, 0x03}
@@ -106,7 +106,7 @@ func Test_RTU_ClientHandler(t *testing.T) {
 	handler.Parity = "N"
 	handler.StopBits = 1
 	handler.SlaveId = 1
-	handler.Logger = log.New(os.Stdout, "rtu: ", log.LstdFlags)
+	handler.Logger = NewSimpleLogger(os.Stdout, LevelDebug)
 
 	err := handler.Connect()
 	if err != nil {
@@ -114,13 +114,13 @@ func Test_RTU_ClientHandler(t *testing.T) {
 	}
 	defer handler.Close()
 	client := NewClient(handler)
-	defer client.GetTransporter().Close()
+	defer client.Close()
 	t.Log(client.ReadCoils(0, 10))
 }
 func Test_TCP_ClientHandler(t *testing.T) {
 	handler := NewTCPClientHandler("127.0.0.1:502")
 	handler.SlaveId = 1
-	handler.Logger = log.New(os.Stdout, "tcp: ", log.LstdFlags)
+	handler.Logger = NewSimpleLogger(os.Stdout, LevelDebug)
 
 	err := handler.Connect()
 	if err != nil {
@@ -128,6 +128,6 @@ func Test_TCP_ClientHandler(t *testing.T) {
 	}
 	defer handler.Close()
 	client := NewClient(handler)
-	defer client.GetTransporter().Close()
+	defer client.Close()
 	t.Log(client.ReadCoils(0, 1))
 }

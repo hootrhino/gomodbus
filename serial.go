@@ -5,8 +5,8 @@
 package modbus
 
 import (
+	"fmt"
 	"io"
-	"log"
 	"sync"
 	"time"
 
@@ -23,12 +23,9 @@ const (
 type serialPort struct {
 	// Serial port configuration.
 	serial.Config
-
-	Logger      *log.Logger
-	IdleTimeout time.Duration
-
-	mu sync.Mutex
-	// port is platform-dependent data structure for serial port.
+	Logger       io.WriteCloser
+	IdleTimeout  time.Duration
+	mu           sync.Mutex
 	port         io.ReadWriteCloser
 	lastActivity time.Time
 	closeTimer   *time.Timer
@@ -68,7 +65,7 @@ func (mb *serialPort) Close() (err error) {
 
 func (mb *serialPort) logf(format string, v ...interface{}) {
 	if mb.Logger != nil {
-		mb.Logger.Printf(format, v...)
+		mb.Logger.Write(fmt.Appendf(nil, format, v...))
 	}
 }
 

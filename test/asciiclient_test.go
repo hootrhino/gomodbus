@@ -5,7 +5,6 @@
 package test
 
 import (
-	"log"
 	"os"
 	"testing"
 
@@ -30,7 +29,7 @@ func TestASCIIClientAdvancedUsage(t *testing.T) {
 	handler.Parity = "E"
 	handler.StopBits = 1
 	handler.SlaveId = 12
-	handler.Logger = log.New(os.Stdout, "ascii: ", log.LstdFlags)
+	handler.Logger = modbus.NewSimpleLogger(os.Stdout, modbus.LevelDebug)
 	err := handler.Connect()
 	if err != nil {
 		t.Fatal(err)
