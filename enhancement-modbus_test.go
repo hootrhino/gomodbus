@@ -834,14 +834,15 @@ func Benchmark_Decode_10_TCP_Registers(b *testing.B) {
 
 }
 func Test_Decode_Print_Registers(t *testing.T) {
-	// Example usage
 	registers := []DeviceRegister{
-		{SlaverId: 1, ReadAddress: 1, ReadQuantity: 1},
-		{SlaverId: 1, ReadAddress: 2, ReadQuantity: 1},
-		{SlaverId: 2, ReadAddress: 1, ReadQuantity: 1},
-		{SlaverId: 2, ReadAddress: 10, ReadQuantity: 1},
-		{SlaverId: 3, ReadAddress: 0, ReadQuantity: 1},
-		{SlaverId: 3, ReadAddress: 1, ReadQuantity: 1},
+		{SlaverId: 1, ReadAddress: 1, ReadQuantity: 1, Tag: "tag1"},
+		{SlaverId: 1, ReadAddress: 1, ReadQuantity: 1, Tag: "tag1_duplicate"}, // Duplicate
+		{SlaverId: 1, ReadAddress: 2, ReadQuantity: 1, Tag: "tag2"},
+		{SlaverId: 2, ReadAddress: 1, ReadQuantity: 1, Tag: "tag3"},
+		{SlaverId: 2, ReadAddress: 10, ReadQuantity: 1, Tag: "tag4"},
+		{SlaverId: 2, ReadAddress: 10, ReadQuantity: 1, Tag: "tag4_duplicate"}, // Duplicate
+		{SlaverId: 3, ReadAddress: 0, ReadQuantity: 1, Tag: "tag5"},
+		{SlaverId: 3, ReadAddress: 1, ReadQuantity: 1, Tag: "tag6"},
 	}
 
 	groups := GroupDeviceRegister(registers)
@@ -855,9 +856,9 @@ func PrintGroups(groups [][]DeviceRegister) {
 			continue
 		}
 		fmt.Printf("Group %d (SlaveId=%d):\n", i+1, group[0].SlaverId)
-		fmt.Printf("  Addresses: ")
+		fmt.Printf("  Registers: ")
 		for _, reg := range group {
-			fmt.Printf("%d ", reg.ReadAddress)
+			fmt.Printf("(Addr=%d Qty=%d Tag=%s) ", reg.ReadAddress, reg.ReadQuantity, reg.Tag)
 		}
 		fmt.Printf("\n")
 	}
