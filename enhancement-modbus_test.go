@@ -833,3 +833,32 @@ func Benchmark_Decode_10_TCP_Registers(b *testing.B) {
 	})
 
 }
+func Test_Decode_Print_Registers(t *testing.T) {
+	// Example usage
+	registers := []DeviceRegister{
+		{SlaverId: 1, ReadAddress: 1, ReadQuantity: 1},
+		{SlaverId: 1, ReadAddress: 2, ReadQuantity: 1},
+		{SlaverId: 2, ReadAddress: 1, ReadQuantity: 1},
+		{SlaverId: 2, ReadAddress: 10, ReadQuantity: 1},
+		{SlaverId: 3, ReadAddress: 0, ReadQuantity: 1},
+		{SlaverId: 3, ReadAddress: 1, ReadQuantity: 1},
+	}
+
+	groups := GroupDeviceRegister(registers)
+	PrintGroups(groups)
+}
+
+// Simple function to print groups for debugging/demonstration
+func PrintGroups(groups [][]DeviceRegister) {
+	for i, group := range groups {
+		if len(group) == 0 {
+			continue
+		}
+		fmt.Printf("Group %d (SlaveId=%d):\n", i+1, group[0].SlaverId)
+		fmt.Printf("  Addresses: ")
+		for _, reg := range group {
+			fmt.Printf("%d ", reg.ReadAddress)
+		}
+		fmt.Printf("\n")
+	}
+}

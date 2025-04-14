@@ -2,45 +2,58 @@ package modbus
 
 import (
 	"fmt"
+	"sort"
 	"sync"
 )
 
-// sort registers
+// GroupDeviceRegister groups registers by SlaveId and consecutive ReadAddress
+// Returns a slice of register groups, where each group contains registers with
+// the same SlaveId and consecutive ReadAddress values
 func GroupDeviceRegister(registers []DeviceRegister) [][]DeviceRegister {
-	{ // inlined sortRegisters function
-		for i := range len(registers) - 1 {
-			for j := range len(registers) - i - 1 {
-				if registers[j].SlaverId > registers[j+1].SlaverId ||
-					(registers[j].SlaverId == registers[j+1].SlaverId &&
-						registers[j].Function > registers[j+1].Function) ||
-					(registers[j].SlaverId == registers[j+1].SlaverId &&
-						registers[j].Function == registers[j+1].Function &&
-						registers[j].ReadAddress > registers[j+1].ReadAddress) {
-					registers[j], registers[j+1] = registers[j+1], registers[j]
-				}
-			}
-		}
+	// Early return for empty input
+	if len(registers) == 0 {
+		return [][]DeviceRegister{}
 	}
-	var grouped [][]DeviceRegister
-	for i := 0; i < len(registers); {
-		currentGroup := []DeviceRegister{registers[i]}
-		last := registers[i]
-		i++
-		for i < len(registers) {
-			current := registers[i]
-			if current.SlaverId == last.SlaverId &&
-				current.Function == last.Function &&
-				current.ReadAddress == last.ReadAddress+last.ReadAddress {
-				currentGroup = append(currentGroup, current)
-				last = current
-				i++
+
+	// Step 1: Group registers by SlaveId
+	slaverGroups := make(map[uint8][]DeviceRegister)
+	for _, reg := range registers {
+		slaverGroups[reg.SlaverId] = append(slaverGroups[reg.SlaverId], reg)
+	}
+
+	// Final result container
+	var result [][]DeviceRegister
+
+	// Step 2: Process each SlaveId group
+	for _, regs := range slaverGroups {
+		// Sort registers by ReadAddress to identify consecutive addresses
+		sort.Slice(regs, func(i, j int) bool {
+			return regs[i].ReadAddress < regs[j].ReadAddress
+		})
+
+		// Step 3: Split each SlaveId group into subgroups of consecutive addresses
+		var currentGroup []DeviceRegister
+		currentGroup = append(currentGroup, regs[0])
+
+		for i := 1; i < len(regs); i++ {
+			// Check if current register's address is consecutive to the previous one
+			if regs[i].ReadAddress == regs[i-1].ReadAddress+regs[i-1].ReadQuantity {
+				// If consecutive, add to current group
+				currentGroup = append(currentGroup, regs[i])
 			} else {
-				break
+				// If not consecutive, finalize current group and start a new one
+				result = append(result, currentGroup)
+				currentGroup = []DeviceRegister{regs[i]}
 			}
 		}
-		grouped = append(grouped, currentGroup)
+
+		// Don't forget to add the last group
+		if len(currentGroup) > 0 {
+			result = append(result, currentGroup)
+		}
 	}
-	return grouped
+
+	return result
 }
 
 // Read data from modbus server concurrently
