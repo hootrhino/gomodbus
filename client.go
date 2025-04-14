@@ -14,6 +14,7 @@ type ClientHandler interface {
 	Packager
 	Transporter
 	Type() string
+	SetSlaverId(slaveId byte)
 }
 
 type client struct {
@@ -33,6 +34,9 @@ func NewClient(handler ClientHandler) Client {
 	}
 }
 
+func (mb *client) SetSlaveId(slaveId byte) {
+	mb.handler.SetSlaverId(slaveId)
+}
 func (mb *client) GetHandlerType() string {
 	return mb.handler.Type()
 }

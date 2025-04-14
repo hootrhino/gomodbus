@@ -43,21 +43,6 @@ func GroupDeviceRegister(registers []DeviceRegister) [][]DeviceRegister {
 	return grouped
 }
 
-//	func sortRegisters(registers []DeviceRegister) {
-//		for i := 0; i < len(registers)-1; i++ {
-//			for j := 0; j < len(registers)-i-1; j++ {
-//				if registers[j].SlaverId > registers[j+1].SlaverId ||
-//					(registers[j].SlaverId == registers[j+1].SlaverId &&
-//						registers[j].Function > registers[j+1].Function) ||
-//					(registers[j].SlaverId == registers[j+1].SlaverId &&
-//						registers[j].Function == registers[j+1].Function &&
-//						registers[j].Address > registers[j+1].Address) {
-//					registers[j], registers[j+1] = registers[j+1], registers[j]
-//				}
-//			}
-//		}
-//	}
-
 // Read data from modbus server concurrently
 func ReadGroupedDataConcurrently(client Client, grouped [][]DeviceRegister) [][]DeviceRegister {
 	var wg sync.WaitGroup
@@ -67,6 +52,7 @@ func ReadGroupedDataConcurrently(client Client, grouped [][]DeviceRegister) [][]
 		wg.Add(1)
 		go func(group []DeviceRegister) {
 			defer wg.Done()
+			client.SetSlaveId(group[0].SlaverId)
 			start := group[0].ReadAddress
 			var totalQuantity uint16
 			for _, reg := range group {
@@ -111,6 +97,7 @@ func ReadGroupedDataSequential(client Client, grouped [][]DeviceRegister) [][]De
 
 	var result [][]DeviceRegister
 	for _, group := range grouped {
+		client.SetSlaveId(group[0].SlaverId)
 		start := group[0].ReadAddress
 		var totalQuantity uint16
 		for _, reg := range group {

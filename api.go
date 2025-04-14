@@ -53,8 +53,10 @@ type Client interface {
 	ReadDeviceIdentification(firstExtendedID byte) (results map[byte]string, err error)
 	// GroupReadData reads batches of grouped registers using the provided Modbus client
 	ReadGroupedRegisterValue([]DeviceRegister) [][]DeviceRegister
-	//
+	// SetSlaveId sets the slave id for the client
+	SetSlaveId(slaveId byte)
+	// Get Type of handler
 	GetHandlerType() string
-	//
+	// Close the client
 	Close() error
 }

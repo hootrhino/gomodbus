@@ -43,6 +43,9 @@ func ASCIIClient(address string) Client {
 func (mb *asciiPackager) Type() string {
 	return "ASCII"
 }
+func (mb *asciiPackager) SetSlaverId(slaveId byte) {
+	mb.SlaveId = slaveId
+}
 
 // asciiPackager implements Packager interface.
 type asciiPackager struct {

@@ -1,6 +1,9 @@
 package modbus
 
-import "sync"
+import (
+	"fmt"
+	"sync"
+)
 
 type RegisterManager struct {
 	OnReadCallback   func(registers []DeviceRegister)
@@ -63,10 +66,20 @@ func (m *RegisterManager) Start() {
 }
 
 // LoadRegisters loads and groups the provided registers
-func (m *RegisterManager) LoadRegisters(registers []DeviceRegister) {
+func (m *RegisterManager) LoadRegisters(registers []DeviceRegister) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	// Check register tag duplication
+	tagMap := make(map[string]bool)
+	for _, register := range registers {
+		if tagMap[register.Tag] {
+			m.OnErrorCallback(fmt.Errorf("duplicate tag: %s", register.Tag))
+			return fmt.Errorf("duplicate tag: %s", register.Tag)
+		}
+		tagMap[register.Tag] = true
+	}
 	m.groupedRegisters = m.GroupDeviceRegister(registers)
+	return nil
 }
 
 // Stop gracefully stops the manager

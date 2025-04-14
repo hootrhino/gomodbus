@@ -45,6 +45,11 @@ func TCPClient(address string) Client {
 	handler := NewTCPClientHandler(address)
 	return NewClient(handler)
 }
+
+func (mb *tcpPackager) SetSlaverId(slaveId byte) {
+	mb.SlaveId = slaveId
+}
+
 func (mb *tcpPackager) Type() string {
 	return "TCP"
 }

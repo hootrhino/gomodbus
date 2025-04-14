@@ -1,6 +1,7 @@
 package modbus
 
 import (
+	"encoding/json"
 	"os"
 	"testing"
 	"time"
@@ -42,7 +43,7 @@ func Test_RegisterManager(t *testing.T) {
 		{
 			Tag:          "Tag-1",
 			Alias:        "Alias-1",
-			SlaverId:     1,
+			SlaverId:     2,
 			Function:     3,
 			ReadAddress:  1,
 			ReadQuantity: 1,
@@ -55,7 +56,7 @@ func Test_RegisterManager(t *testing.T) {
 		{
 			Tag:          "Tag-2",
 			Alias:        "Alias-2",
-			SlaverId:     1,
+			SlaverId:     3,
 			Function:     3,
 			ReadAddress:  2,
 			ReadQuantity: 1,
@@ -84,7 +85,7 @@ func Test_RegisterManager(t *testing.T) {
 			Tag:          "Tag-11",
 			Alias:        "Alias-11",
 			SlaverId:     1,
-			Function:     3,
+			Function:     2,
 			ReadAddress:  11,
 			ReadQuantity: 1,
 			DataType:     "uint16",
@@ -96,7 +97,7 @@ func Test_RegisterManager(t *testing.T) {
 		{
 			Tag:          "Tag-12",
 			Alias:        "Alias-12",
-			SlaverId:     1,
+			SlaverId:     3,
 			Function:     3,
 			ReadAddress:  12,
 			ReadQuantity: 1,
@@ -107,7 +108,9 @@ func Test_RegisterManager(t *testing.T) {
 			Value:        [8]byte{0},
 		},
 	}
-	manager.LoadRegisters(registers)
+	if errLoad := manager.LoadRegisters(registers); errLoad != nil {
+		t.Fatal(errLoad)
+	}
 	manager.SetOnErrorCallback(func(err error) {
 		t.Log(err)
 	})
@@ -117,8 +120,31 @@ func Test_RegisterManager(t *testing.T) {
 			if err != nil {
 				t.Log(err)
 			}
-			t.Log("== ", register.Tag, register.Alias, register.DataType,
-				register.DataOrder, register.BitPosition, register.Weight, register.Frequency, value)
+			// build iothub json message
+			// {
+			// 	"deviceId": "device-1",
+			// 	"timestamp": "2021-01-01T00:00:00Z",
+			// 	"measurements": {
+			// 		"temperature": 25.5,
+			// 		"humidity": 50.5,
+			// 		"pressure": 1013.25
+			// 	}
+			// }
+			Payload := map[string]any{
+				"method":    "POST",
+				"path":      "/api/v1/measurements",
+				"deviceId":  "device-1",
+				"timestamp": time.Now().Format(time.RFC3339),
+				"measurements": map[string]any{
+					register.Tag: value.Float64,
+				},
+			}
+			// convert to json
+			jsonData, err := json.Marshal(Payload)
+			if err != nil {
+				t.Log(err)
+			}
+			t.Log(string(jsonData))
 		}
 	})
 	manager.Start()

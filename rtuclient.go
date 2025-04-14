@@ -41,6 +41,9 @@ func RTUClient(address string) Client {
 func (mb *rtuPackager) Type() string {
 	return "RTU"
 }
+func (mb *rtuPackager) SetSlaverId(slaveId byte) {
+	mb.SlaveId = slaveId
+}
 
 // rtuPackager implements Packager interface.
 type rtuPackager struct {
