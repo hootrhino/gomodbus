@@ -41,7 +41,7 @@ func Test_RegisterManager(t *testing.T) {
 			Value:        [8]byte{0},
 		},
 		{
-			Tag:          "Tag-1",
+			Tag:          "Tag-1-uint16",
 			Alias:        "Alias-1",
 			SlaverId:     2,
 			Function:     3,
@@ -54,7 +54,7 @@ func Test_RegisterManager(t *testing.T) {
 			Value:        [8]byte{0},
 		},
 		{
-			Tag:          "Tag-2",
+			Tag:          "Tag-2-uint16",
 			Alias:        "Alias-2",
 			SlaverId:     3,
 			Function:     3,
@@ -82,7 +82,7 @@ func Test_RegisterManager(t *testing.T) {
 			Value:        [8]byte{0},
 		},
 		{
-			Tag:          "Tag-11",
+			Tag:          "Tag-11-uint16",
 			Alias:        "Alias-11",
 			SlaverId:     1,
 			Function:     2,
@@ -95,7 +95,7 @@ func Test_RegisterManager(t *testing.T) {
 			Value:        [8]byte{0},
 		},
 		{
-			Tag:          "Tag-12",
+			Tag:          "Tag-12-uint16",
 			Alias:        "Alias-12",
 			SlaverId:     3,
 			Function:     3,
@@ -118,18 +118,8 @@ func Test_RegisterManager(t *testing.T) {
 		for _, register := range registers {
 			value, err := register.DecodeValue()
 			if err != nil {
-				t.Log(err)
+				t.Fatal(err)
 			}
-			// build iothub json message
-			// {
-			// 	"deviceId": "device-1",
-			// 	"timestamp": "2021-01-01T00:00:00Z",
-			// 	"measurements": {
-			// 		"temperature": 25.5,
-			// 		"humidity": 50.5,
-			// 		"pressure": 1013.25
-			// 	}
-			// }
 			Payload := map[string]any{
 				"method":    "POST",
 				"path":      "/api/v1/measurements",
@@ -142,13 +132,14 @@ func Test_RegisterManager(t *testing.T) {
 			// convert to json
 			jsonData, err := json.Marshal(Payload)
 			if err != nil {
-				t.Log(err)
+				t.Fatal(err)
 			}
 			t.Log(string(jsonData))
 		}
 	})
 	manager.Start()
 	for range 100 {
+		// DATA => AB FF
 		manager.ReadGroupedData()
 	}
 	time.Sleep(1 * time.Second)
