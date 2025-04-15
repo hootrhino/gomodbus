@@ -11,7 +11,6 @@ type RegisterManager struct {
 	dataQueue        chan []DeviceRegister
 	groupedRegisters [][]DeviceRegister
 	exitSignal       chan struct{}
-	runningChannel   chan struct{}
 	client           Client
 	clientType       string
 	mu               sync.Mutex // Protects shared resources
@@ -23,7 +22,6 @@ func NewRegisterManager(client Client, queueSize int) *RegisterManager {
 		dataQueue:        make(chan []DeviceRegister, queueSize),
 		groupedRegisters: [][]DeviceRegister{},
 		exitSignal:       make(chan struct{}),
-		runningChannel:   make(chan struct{}),
 		client:           client,
 		clientType:       client.GetHandlerType(),
 	}
@@ -46,7 +44,6 @@ func (m *RegisterManager) SetOnErrorCallback(callback func(err error)) {
 // Start begins processing the data queue
 func (m *RegisterManager) Start() {
 	go func() {
-		defer close(m.runningChannel)
 		for {
 			select {
 			case <-m.exitSignal:
@@ -85,7 +82,6 @@ func (m *RegisterManager) LoadRegisters(registers []DeviceRegister) error {
 // Stop gracefully stops the manager
 func (m *RegisterManager) Stop() {
 	close(m.exitSignal)
-	<-m.runningChannel
 	close(m.dataQueue)
 }
 

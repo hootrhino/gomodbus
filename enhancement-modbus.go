@@ -127,7 +127,11 @@ func ReadGroupedDataConcurrently(client Client, grouped [][]DeviceRegister) [][]
 			offset := 0
 			for i := range group {
 				copy(group[i].Value[:group[i].ReadQuantity*2], data[offset:offset+int(group[i].ReadQuantity*2)])
-				group[i].Status = "VALID:OK"
+				if err != nil {
+					group[i].Status = fmt.Sprintf("INVALID:%s", err)
+				} else {
+					group[i].Status = "VALID:OK"
+				}
 				offset += int(group[i].ReadQuantity * 2)
 			}
 			result = append(result, group)
