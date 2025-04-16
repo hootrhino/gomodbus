@@ -11,7 +11,7 @@ import (
 // the same SlaveId and consecutive ReadAddress values
 // If multiple registers have identical SlaverId, ReadAddress, and ReadQuantity,
 // they will be combined into a single entry
-func GroupDeviceRegister(registers []DeviceRegister) [][]DeviceRegister {
+func GroupDeviceRegisterWithUniqueSlaverId(registers []DeviceRegister) [][]DeviceRegister {
 	// Early return for empty input
 	if len(registers) == 0 {
 		return [][]DeviceRegister{}
@@ -50,6 +50,8 @@ func GroupDeviceRegister(registers []DeviceRegister) [][]DeviceRegister {
 	// Step 2: Group registers by SlaveId
 	slaverGroups := make(map[uint8][]DeviceRegister)
 	for _, reg := range deduplicatedRegisters {
+		if reg.DataType == "bool" {
+		}
 		slaverGroups[reg.SlaverId] = append(slaverGroups[reg.SlaverId], reg)
 	}
 
@@ -82,6 +84,62 @@ func GroupDeviceRegister(registers []DeviceRegister) [][]DeviceRegister {
 		// Don't forget to add the last group
 		if len(currentGroup) > 0 {
 			result = append(result, currentGroup)
+		}
+	}
+
+	return result
+}
+
+// GroupDeviceRegister groups registers by SlaveId and consecutive ReadAddress
+// Returns a slice of register groups, where each group contains registers with
+// the same SlaveId and consecutive ReadAddress values
+// This version does not deduplicate registers with identical SlaverId
+func GroupDeviceRegisterWithUniqueAddress(registers []DeviceRegister) [][]DeviceRegister {
+	// Early return for empty input
+	if len(registers) == 0 {
+		return [][]DeviceRegister{}
+	}
+
+	// Step 1: Group registers by SlaveId
+	slaveGroups := make(map[uint8][]DeviceRegister)
+	for _, reg := range registers {
+		slaveGroups[reg.SlaverId] = append(slaveGroups[reg.SlaverId], reg)
+	}
+
+	// Final result container
+	var result [][]DeviceRegister
+
+	// Step 2: Process each SlaveId group
+	for _, regs := range slaveGroups {
+		// Sort registers by ReadAddress to identify consecutive addresses
+		sort.Slice(regs, func(i, j int) bool {
+			return regs[i].ReadAddress < regs[j].ReadAddress
+		})
+
+		// Step 3: Split each SlaveId group into subgroups of consecutive addresses
+		// Also ensure function codes match within each group
+		if len(regs) > 0 {
+			var currentGroup []DeviceRegister
+			currentGroup = append(currentGroup, regs[0])
+
+			for i := 1; i < len(regs); i++ {
+				// Check if current register's address is consecutive to the previous one
+				// and that they have the same function code
+				if regs[i].ReadAddress == regs[i-1].ReadAddress+regs[i-1].ReadQuantity &&
+					regs[i].Function == regs[i-1].Function {
+					// If consecutive and same function, add to current group
+					currentGroup = append(currentGroup, regs[i])
+				} else {
+					// If not consecutive or different function, finalize current group and start a new one
+					result = append(result, currentGroup)
+					currentGroup = []DeviceRegister{regs[i]}
+				}
+			}
+
+			// Don't forget to add the last group
+			if len(currentGroup) > 0 {
+				result = append(result, currentGroup)
+			}
 		}
 	}
 

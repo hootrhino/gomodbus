@@ -104,7 +104,7 @@ func Test_GroupDeviceRegister(t *testing.T) {
 	}
 
 	{
-		grouped := GroupDeviceRegister(input)
+		grouped := GroupDeviceRegisterWithUniqueAddress(input)
 		jsonData, err := json.MarshalIndent(grouped, "", "  ")
 		if err != nil {
 			t.Fatalf("error marshalling result: %v", err)
@@ -843,9 +843,24 @@ func Test_Decode_Print_Registers(t *testing.T) {
 		{SlaverId: 2, ReadAddress: 10, ReadQuantity: 1, Tag: "tag4_duplicate"}, // Duplicate
 		{SlaverId: 3, ReadAddress: 0, ReadQuantity: 1, Tag: "tag5"},
 		{SlaverId: 3, ReadAddress: 1, ReadQuantity: 1, Tag: "tag6"},
+		{SlaverId: 4, ReadAddress: 1, ReadQuantity: 1, Tag: "bool1"},
+		{SlaverId: 4, ReadAddress: 1, ReadQuantity: 1, Tag: "bool2"},
+		{SlaverId: 4, ReadAddress: 1, ReadQuantity: 1, Tag: "bool3"},
+		{SlaverId: 4, ReadAddress: 1, ReadQuantity: 1, Tag: "bool4"},
+		{SlaverId: 4, ReadAddress: 1, ReadQuantity: 1, Tag: "bool5"},
+		{SlaverId: 4, ReadAddress: 1, ReadQuantity: 1, Tag: "bool6"},
+		{SlaverId: 4, ReadAddress: 1, ReadQuantity: 1, Tag: "bool7"},
+		{SlaverId: 4, ReadAddress: 1, ReadQuantity: 1, Tag: "bool8"},
+		{SlaverId: 4, ReadAddress: 1, ReadQuantity: 1, Tag: "bool9"},
+		{SlaverId: 4, ReadAddress: 1, ReadQuantity: 1, Tag: "bool10"},
+		{SlaverId: 4, ReadAddress: 1, ReadQuantity: 1, Tag: "bool11"},
+		{SlaverId: 4, ReadAddress: 1, ReadQuantity: 1, Tag: "bool12"},
+		{SlaverId: 4, ReadAddress: 1, ReadQuantity: 1, Tag: "bool13"},
+		{SlaverId: 4, ReadAddress: 1, ReadQuantity: 1, Tag: "bool14"},
+		{SlaverId: 4, ReadAddress: 1, ReadQuantity: 1, Tag: "bool15"},
 	}
 
-	groups := GroupDeviceRegister(registers)
+	groups := GroupDeviceRegisterWithUniqueAddress(registers)
 	PrintGroups(groups)
 }
 

@@ -55,7 +55,7 @@ func NewClientWithTransporter(packager Packager, transporter Transporter) Client
 
 // GroupReadData reads batches of grouped registers using the provided Modbus client
 func (mb *client) ReadGroupedRegisterValue(registers []DeviceRegister) [][]DeviceRegister {
-	return mb.groupReadData(GroupDeviceRegister(registers))
+	return mb.groupReadData(GroupDeviceRegisterWithUniqueAddress(registers))
 }
 
 // ReadData reads batches of grouped registers using the provided Modbus client
