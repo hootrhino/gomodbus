@@ -76,27 +76,11 @@ client := modbus.NewClient(handler)
 results, err := client.ReadDiscreteInputs(15, 2)
 ```
 
+## New Features
 ### Read By Group
 ```go
-func Test_GroupDeviceRegister(t *testing.T) {
-	input := []DeviceRegister{
-		{Tag: "F", Alias: "A6", SlaverId: 1, Function: 3, Address: 1, Quantity: 1},
-		{Tag: "A", Alias: "A1", SlaverId: 1, Function: 3, Address: 2, Quantity: 1},
-		{Tag: "B", Alias: "A2", SlaverId: 1, Function: 3, Address: 4, Quantity: 1},
-		{Tag: "C", Alias: "A3", SlaverId: 1, Function: 3, Address: 5, Quantity: 1},
-		{Tag: "D", Alias: "A4", SlaverId: 1, Function: 3, Address: 8, Quantity: 1},
-		{Tag: "E", Alias: "A5", SlaverId: 1, Function: 3, Address: 9, Quantity: 1},
-		{Tag: "G", Alias: "A7", SlaverId: 1, Function: 3, Address: 10, Quantity: 1},
-	}
 
-	{
-		grouped := GroupDeviceRegister(input)
-		jsonData, err := json.MarshalIndent(grouped, "", "  ")
-		if err != nil {
-			t.Fatalf("error marshalling result: %v", err)
-		}
-		t.Logf("Grouped: %s", string(jsonData))
-	}
+func Test_RegisterManager_Decode_bool(t *testing.T) {
 	handler := NewRTUClientHandler("COM3")
 	handler.BaudRate = 9600
 	handler.DataBits = 8
@@ -111,15 +95,44 @@ func Test_GroupDeviceRegister(t *testing.T) {
 	}
 	defer handler.Close()
 	client := NewClient(handler)
-	defer client.GetTransporter().Close()
-	result := client.ReadGroupedRegisterValue(input)
-	for i, group := range result {
-		for j, reg := range group {
-			t.Logf("======= group->%v  reg=%v  Address= %v  Tag= %v", i, j, reg.Address, reg.Tag)
-		}
-	}
-}
+	defer client.Close()
+	manager := NewRegisterManager(client, 10)
 
+	registers := []DeviceRegister{}
+	for i := range 16 {
+		registers = append(registers, DeviceRegister{
+			Tag:          fmt.Sprintf("tag:bool:%d", i),
+			Alias:        fmt.Sprintf("tag:bool:%d", i),
+			SlaverId:     uint8(i),
+			Function:     3,
+			ReadAddress:  1,
+			ReadQuantity: 1,
+			DataType:     "bool", // ABFF = 10101011 11111111
+			BitPosition:  uint16(i),
+		})
+	}
+	if errLoad := manager.LoadRegisters(registers); errLoad != nil {
+		t.Fatal(errLoad)
+	}
+	manager.SetOnErrorCallback(func(err error) {
+		t.Log(err)
+	})
+	manager.SetOnReadCallback(func(registers []DeviceRegister) {
+		for _, register := range registers {
+			value, err := register.DecodeValue()
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Log(fmt.Sprintf("tag:%s, value:%v", register.Tag, value.AsType))
+		}
+	})
+	manager.Start()
+	for range 1 {
+		manager.ReadGroupedData()
+	}
+	time.Sleep(1 * time.Second)
+	manager.Stop()
+}
 ```
 
 ## References
