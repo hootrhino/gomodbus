@@ -32,7 +32,7 @@ func Test_RegisterManager_Decode_bool(t *testing.T) {
 			Alias:        fmt.Sprintf("tag:bool:%d", i),
 			SlaverId:     uint8(i),
 			Function:     3,
-			ReadAddress:  uint16(i),
+			ReadAddress:  1,
 			ReadQuantity: 1,
 			DataType:     "bool", // ABFF = 10101011 11111111
 			BitPosition:  uint16(i),
