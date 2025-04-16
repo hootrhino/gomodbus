@@ -101,7 +101,7 @@ func ReadGroupedDataConcurrently(client Client, grouped [][]DeviceRegister) [][]
 			start := group[0].ReadAddress
 			var totalQuantity uint16
 			for _, reg := range group {
-				totalQuantity += reg.ReadAddress
+				totalQuantity += reg.ReadQuantity
 			}
 			var data []byte
 			var err error
