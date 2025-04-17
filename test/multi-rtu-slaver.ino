@@ -31,7 +31,31 @@ unsigned inline int crc16(byte *data, int length)
     }
     return crc;
 }
+void sendReadCoilsResponse(uint8_t slaveId, uint16_t coilCount)
+{
+    uint8_t byteCount = (coilCount + 7) / 8;
+    uint8_t responseBuffer[3 + byteCount];
 
+    responseBuffer[0] = slaveId;
+    responseBuffer[1] = 0x01;
+    responseBuffer[2] = byteCount;
+
+    for (uint8_t i = 0; i < byteCount; i++)
+    {
+        responseBuffer[3 + i] = 0xFF;
+    }
+
+    uint16_t crc = crc16(responseBuffer, 3 + byteCount);
+    uint8_t crcLow = crc & 0xFF;
+    uint8_t crcHigh = (crc >> 8) & 0xFF;
+    for (uint8_t i = 0; i < (3 + byteCount); i++)
+    {
+        Serial.write(responseBuffer[i]);
+    }
+
+    Serial.write(crcLow);
+    Serial.write(crcHigh);
+}
 void send2Bytes(byte slaveId)
 {
     byte responseBuffer[5];
@@ -85,13 +109,23 @@ void processModbusRequest()
     byte crcLow = receiveBuffer[6];
     byte crcHigh = receiveBuffer[7];
     unsigned short quantity = (quantityHigh << 8) | quantityLow;
-    if (quantity == 1)
+    if (functionCode == 3)
     {
-        send2Bytes(slaveId);
+        if (quantity == 1)
+        {
+            send2Bytes(slaveId);
+        }
+        else if (quantity == 2)
+        {
+            send4Bytes(slaveId);
+        }
     }
-    else if (quantity == 2)
+    if (functionCode == 1)
     {
-        send4Bytes(slaveId);
+        if (quantity == 0)
+        {
+            sendReadCoilsResponse(slaveId, quantity);
+        }
     }
 }
 
