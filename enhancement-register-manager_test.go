@@ -15,12 +15,10 @@ func MakeNewTestClient() Client {
 	handler.StopBits = 1
 	handler.SlaveId = 1
 	handler.Logger = NewSimpleLogger(os.Stdout, LevelDebug)
-
 	err := handler.Connect()
 	if err != nil {
 		panic(err)
 	}
-	defer handler.Close()
 	client := NewClient(handler)
 	return client
 }
