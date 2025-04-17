@@ -254,4 +254,5 @@ fmt.Printf("Reordered bytes: %v\n", reordered)
 ## References
 This project is based on goburrow/modbus, available at [this link](https://github.com/goburrow/modbus). Thank you for your valuable contribution to the developer community.
 
--   [Modbus Specifications and Implementation Guides](http://www.modbus.org/specs.php)
+- [Modbus Specifications](http://www.modbus.org/specs.php)
+- [Modbus Protocol Description](https://www.modbustools.com/modbus.html)
