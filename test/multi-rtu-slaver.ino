@@ -56,41 +56,25 @@ void sendReadCoilsResponse(uint8_t slaveId, uint16_t coilCount)
     Serial.write(crcLow);
     Serial.write(crcHigh);
 }
-void send2Bytes(byte slaveId)
+void sendDynamicBytes(byte slaveId, unsigned short quantity)
 {
-    byte responseBuffer[5];
+    byte byteCount = quantity * 2;
+    byte responseBuffer[3 + byteCount];
+
     responseBuffer[0] = slaveId;
     responseBuffer[1] = READ_HOLDING_REGISTERS;
-    responseBuffer[2] = 0x02;
-    responseBuffer[3] = 0xAB;
-    responseBuffer[4] = 0xFF;
+    responseBuffer[2] = byteCount;
 
-    unsigned int crc = crc16(responseBuffer, 5);
-    byte crcLow = crc & 0xFF;
-    byte crcHigh = (crc >> 8) & 0xFF;
-
-    for (int i = 0; i < 5; i++)
+    for (int i = 0; i < byteCount; i++)
     {
-        Serial.write(responseBuffer[i]);
+        responseBuffer[3 + i] = 0xFF;
     }
-    Serial.write(crcLow);
-    Serial.write(crcHigh);
-}
-void send4Bytes(byte slaveId)
-{
-    byte responseBuffer[7]; // Send 4 bytes of data
-    responseBuffer[0] = slaveId;
-    responseBuffer[1] = READ_HOLDING_REGISTERS;
-    // 3.14159= 40 49 0F DA
-    responseBuffer[2] = 0x04;
-    responseBuffer[3] = 0x40;
-    responseBuffer[4] = 0x49;
-    responseBuffer[5] = 0x0F;
-    responseBuffer[6] = 0xDA;
-    unsigned int crc = crc16(responseBuffer, 7);
+
+    unsigned int crc = crc16(responseBuffer, 3 + byteCount);
     byte crcLow = crc & 0xFF;
     byte crcHigh = (crc >> 8) & 0xFF;
-    for (int i = 0; i < 7; i++)
+
+    for (int i = 0; i < (3 + byteCount); i++)
     {
         Serial.write(responseBuffer[i]);
     }
@@ -109,23 +93,20 @@ void processModbusRequest()
     byte crcLow = receiveBuffer[6];
     byte crcHigh = receiveBuffer[7];
     unsigned short quantity = (quantityHigh << 8) | quantityLow;
-    if (functionCode == 3)
+    switch (functionCode)
     {
-        if (quantity == 1)
-        {
-            send2Bytes(slaveId);
-        }
-        else if (quantity == 2)
-        {
-            send4Bytes(slaveId);
-        }
-    }
-    if (functionCode == 1)
-    {
-        if (quantity == 0)
-        {
-            sendReadCoilsResponse(slaveId, quantity);
-        }
+    case 1: // Read Coils
+        sendReadCoilsResponse(slaveId, quantity);
+        break;
+    case 2: // Read Discrete Inputs
+        sendReadCoilsResponse(slaveId, quantity);
+        break;
+    case 3: // Read Holding Registers
+    case 4: // Read Input Registers
+        sendDynamicBytes(slaveId, quantity);
+        break;
+    default:
+        break;
     }
 }
 
