@@ -9,6 +9,7 @@ import (
 	"math"
 	"os"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -484,86 +485,126 @@ func compare2BytesEqual(a, b [8]byte) bool {
 	return valA == valB
 }
 
+// LoadRegisterFromCSV loads DeviceRegister data from a CSV file
 func LoadRegisterFromCSV(filePath string) ([]DeviceRegister, error) {
+	// Open the CSV file
 	file, err := os.Open(filePath)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to open CSV file: %w", err)
 	}
 	defer file.Close()
 
+	// Create CSV reader
 	reader := csv.NewReader(file)
-	records, err := reader.ReadAll()
+	reader.TrimLeadingSpace = true
+
+	// Read headers
+	headers, err := reader.Read()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to read CSV headers: %w", err)
 	}
 
-	// 跳过表头
-	if len(records) == 0 {
-		return nil, nil
+	// Expected headers
+	expectedHeaders := []string{
+		"Tag", "Alias", "SlaverId", "Function", "ReadAddress",
+		"ReadQuantity", "DataType", "DataOrder", "BitPosition",
+		"BitMask", "Weight", "Frequency",
 	}
-	records = records[1:]
 
+	// Validate headers
+	if len(headers) != len(expectedHeaders) {
+		return nil, fmt.Errorf("invalid number of headers: expected %d, got %d", len(expectedHeaders), len(headers))
+	}
+	for i, header := range headers {
+		if strings.TrimSpace(header) != expectedHeaders[i] {
+			return nil, fmt.Errorf("invalid header at position %d: expected %s, got %s", i, expectedHeaders[i], header)
+		}
+	}
+
+	// Read records
 	var registers []DeviceRegister
-	for _, record := range records {
-		if len(record) != 12 {
-			return nil, fmt.Errorf("invalid record length: %d", len(record))
+	for {
+		record, err := reader.Read()
+		if err != nil {
+			if err.Error() == "EOF" {
+				break
+			}
+			return nil, fmt.Errorf("failed to read CSV record: %w", err)
 		}
 
-		slaverId, err := strconv.Atoi(record[2])
-		if err != nil {
-			return nil, err
+		// Validate record length
+		if len(record) != len(expectedHeaders) {
+			return nil, fmt.Errorf("invalid record length: expected %d fields, got %d", len(expectedHeaders), len(record))
 		}
 
-		function, err := strconv.Atoi(record[3])
+		// Parse fields
+		slaverId, err := strconv.ParseUint(record[2], 10, 8)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("invalid slaverId '%s': %w", record[2], err)
 		}
 
-		readAddress, err := strconv.Atoi(record[4])
+		function, err := strconv.ParseUint(record[3], 10, 8)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("invalid function '%s': %w", record[3], err)
 		}
 
-		readQuantity, err := strconv.Atoi(record[5])
+		readAddress, err := strconv.ParseUint(record[4], 10, 16)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("invalid readAddress '%s': %w", record[4], err)
 		}
 
-		bitPosition, err := strconv.Atoi(record[8])
+		readQuantity, err := strconv.ParseUint(record[5], 10, 16)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("invalid readQuantity '%s': %w", record[5], err)
 		}
 
-		bitMask, err := strconv.Atoi(record[9])
+		bitPosition, err := strconv.ParseUint(record[8], 10, 16)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("invalid bitPosition '%s': %w", record[8], err)
+		}
+
+		// Handle bitMask (could be hexadecimal or decimal)
+		var bitMask uint64
+		if strings.HasPrefix(strings.ToLower(record[9]), "0x") {
+			bitMask, err = strconv.ParseUint(record[9][2:], 16, 16)
+		} else {
+			bitMask, err = strconv.ParseUint(record[9], 10, 16)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("invalid bitMask '%s': %w", record[9], err)
 		}
 
 		weight, err := strconv.ParseFloat(record[10], 64)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("invalid weight '%s': %w", record[10], err)
 		}
 
 		frequency, err := strconv.ParseUint(record[11], 10, 64)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("invalid frequency '%s': %w", record[11], err)
 		}
 
+		// Create DeviceRegister
 		register := DeviceRegister{
-			Tag:          record[0],
-			Alias:        record[1],
+			Tag:          strings.TrimSpace(record[0]),
+			Alias:        strings.TrimSpace(record[1]),
 			SlaverId:     uint8(slaverId),
 			Function:     uint8(function),
 			ReadAddress:  uint16(readAddress),
 			ReadQuantity: uint16(readQuantity),
-			DataType:     record[6],
-			DataOrder:    record[7],
+			DataType:     strings.TrimSpace(record[6]),
+			DataOrder:    strings.TrimSpace(record[7]),
 			BitPosition:  uint16(bitPosition),
 			BitMask:      uint16(bitMask),
 			Weight:       weight,
 			Frequency:    frequency,
 		}
+
 		registers = append(registers, register)
+	}
+
+	if len(registers) == 0 {
+		return nil, fmt.Errorf("no valid records found in CSV")
 	}
 
 	return registers, nil
