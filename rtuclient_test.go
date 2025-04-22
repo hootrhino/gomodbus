@@ -106,7 +106,7 @@ func Test_RTU_ClientHandler(t *testing.T) {
 	handler.Parity = "N"
 	handler.StopBits = 1
 	handler.SlaveId = 1
-	handler.Logger = NewSimpleLogger(os.Stdout, LevelDebug)
+	handler.Logger = NewSimpleLogger(os.Stdout, LevelDebug, "TEST")
 
 	err := handler.Connect()
 	if err != nil {
@@ -120,7 +120,7 @@ func Test_RTU_ClientHandler(t *testing.T) {
 func Test_TCP_ClientHandler(t *testing.T) {
 	handler := NewTCPClientHandler("127.0.0.1:502")
 	handler.SlaveId = 1
-	handler.Logger = NewSimpleLogger(os.Stdout, LevelDebug)
+	handler.Logger = NewSimpleLogger(os.Stdout, LevelDebug, "TEST")
 
 	err := handler.Connect()
 	if err != nil {

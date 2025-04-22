@@ -26,7 +26,7 @@ func TestASCIIOverTCPClientAdvancedUsage(t *testing.T) {
 	handler := modbus.NewASCIIOverTCPClientHandler(asciiOverTCPDevice)
 	handler.Timeout = 5 * time.Second
 	handler.SlaveId = 1
-	handler.Logger = modbus.NewSimpleLogger(os.Stdout, modbus.LevelDebug)
+	handler.Logger = modbus.NewSimpleLogger(os.Stdout, modbus.LevelDebug, "TEST")
 	handler.Connect()
 	defer handler.Close()
 

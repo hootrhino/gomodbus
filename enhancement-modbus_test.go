@@ -118,7 +118,7 @@ func Test_GroupDeviceRegister(t *testing.T) {
 	handler.Parity = "N"
 	handler.StopBits = 1
 	handler.SlaveId = 1
-	handler.Logger = NewSimpleLogger(os.Stdout, LevelDebug)
+	handler.Logger = NewSimpleLogger(os.Stdout, LevelDebug, "TEST")
 
 	err := handler.Connect()
 	if err != nil {
@@ -127,7 +127,14 @@ func Test_GroupDeviceRegister(t *testing.T) {
 	defer handler.Close()
 	client := NewClient(handler)
 	defer client.Close()
-	result := client.ReadGroupedRegisterValue(input)
+	result, errs := client.ReadGroupedRegisterValue(input)
+	if len(errs) > 0 {
+
+		for _, err := range errs {
+			t.Logf("Error reading registers: %v", err)
+		}
+		t.Fail()
+	}
 	for i, group := range result {
 		for j, reg := range group {
 			t.Logf("======= group->%v  reg=%v  Address= %v  Tag= %v", i, j, reg.ReadAddress, reg.Tag)
@@ -174,7 +181,7 @@ func Test_GroupDevice_UART_125_Registers(t *testing.T) {
 	handler.Parity = "N"
 	handler.StopBits = 1
 	handler.SlaveId = 1
-	handler.Logger = NewSimpleLogger(os.Stdout, LevelDebug)
+	handler.Logger = NewSimpleLogger(os.Stdout, LevelDebug, "TEST")
 
 	err := handler.Connect()
 	if err != nil {
@@ -193,7 +200,7 @@ func Test_Group_UART_Device_1_Bool_Register(t *testing.T) {
 	handler.Parity = "N"
 	handler.StopBits = 1
 	handler.SlaveId = 1
-	handler.Logger = NewSimpleLogger(os.Stdout, LevelDebug)
+	handler.Logger = NewSimpleLogger(os.Stdout, LevelDebug, "TEST")
 
 	err := handler.Connect()
 	if err != nil {
@@ -255,9 +262,9 @@ func Test_Group_TCP_Device_125_Registers(t *testing.T) {
 	}
 
 	// Group the registers
-	handler := NewTCPClientHandler("127.0.0.1:520")
+	handler := NewTCPClientHandler("127.0.0.1:502")
 	handler.SlaveId = 1
-	handler.Logger = NewSimpleLogger(os.Stdout, LevelDebug)
+	handler.Logger = NewSimpleLogger(os.Stdout, LevelDebug, "TEST")
 
 	err := handler.Connect()
 	if err != nil {
@@ -266,13 +273,22 @@ func Test_Group_TCP_Device_125_Registers(t *testing.T) {
 	defer handler.Close()
 	client := NewClient(handler)
 	defer client.Close()
-	testGroup(t, client, input1)
-	testGroup(t, client, input2)
+	for i := 0; i < 100000; i++ {
+		testGroup(t, client, input1)
+		testGroup(t, client, input2)
+	}
+
 }
 
-// go test -timeout 30s -run ^Test_Group_TCP_Device_1_Bool_Register$ github.com/hootrhino/gomodbus -v -count=1
 func testGroup(t *testing.T, client Client, input []DeviceRegister) {
-	result := client.ReadGroupedRegisterValue(input)
+	result, errs := client.ReadGroupedRegisterValue(input)
+	if len(errs) > 0 {
+
+		for _, err := range errs {
+			t.Logf("Error reading registers: %v", err)
+		}
+		t.Fatalf("Failed to read registers: %v", errs)
+	}
 	for i, group := range result {
 		t.Logf("== ReadGroupedRegisterValue.[%v]", i)
 		for _, reg := range group {
@@ -622,13 +638,13 @@ func Test_LoadRegisterFromCSV(t *testing.T) {
 	if err1 != nil {
 		t.Fatalf("Failed to load registers from CSV: %v", err1)
 	}
+	// handler := NewTCPClientHandler("127.0.0.1:502")
 	handler := NewRTUClientHandler("COM3")
 	handler.BaudRate = 9600
 	handler.DataBits = 8
 	handler.Parity = "N"
 	handler.StopBits = 1
-	handler.SlaveId = 1
-	handler.Logger = NewSimpleLogger(os.Stdout, LevelDebug)
+	handler.Logger = NewSimpleLogger(os.Stdout, LevelDebug, "TEST")
 
 	err := handler.Connect()
 	if err != nil {
@@ -646,25 +662,9 @@ func Test_LoadRegisterFromCSV(t *testing.T) {
 		for _, register := range registers {
 			value, err := register.DecodeValue()
 			if err != nil {
-				t.Log(err)
+				t.Fatal(err)
 			}
-			testData := testMqttData{
-				Header: map[string]any{
-					"tag":   register.Tag,
-					"alias": register.Alias,
-				},
-				Body: map[string]any{
-					"value": value.AsType,
-				},
-			}
-			jsonData, err := json.Marshal(testData)
-			if err != nil {
-				t.Error(err)
-			}
-			t.Log(string(jsonData))
-
-			// t.Log("== ", register.Tag, register.Alias, register.DataType,
-			// 	register.DataOrder, register.BitPosition, register.Weight, register.Frequency, value)
+			t.Log(fmt.Sprintf("tag:%s, value:%v", register.Tag, value.String()))
 		}
 	})
 	manager.Start()
@@ -849,7 +849,7 @@ func Benchmark_Decode_10_TCP_Registers(b *testing.B) {
 	// Group the registers
 	handler := NewRTUClientHandler("COM17")
 	handler.SlaveId = 1
-	handler.Logger = NewSimpleLogger(os.Stdout, LevelDebug)
+	handler.Logger = NewSimpleLogger(os.Stdout, LevelDebug, "TEST")
 
 	err := handler.Connect()
 	if err != nil {
@@ -864,7 +864,13 @@ func Benchmark_Decode_10_TCP_Registers(b *testing.B) {
 			b.StopTimer()
 		}
 		acc--
-		result := client.ReadGroupedRegisterValue(input1)
+		result, errs := client.ReadGroupedRegisterValue(input1)
+		if len(errs) > 0 {
+			for _, err := range errs {
+				b.Logf("Error reading registers: %v", err)
+			}
+			b.Fail()
+		}
 		for _, group := range result {
 			for _, reg := range group {
 				b.Log("== ", reg.String())

@@ -27,6 +27,16 @@ func NewRegisterManager(client Client, queueSize int) *RegisterManager {
 	}
 }
 
+// GetCLient
+func (m *RegisterManager) GetClient() Client {
+	return m.client
+}
+
+// GetClientType returns the type of the client
+func (m *RegisterManager) GetClientType() string {
+	return m.clientType
+}
+
 // SetOnReadCallback sets the callback for successful reads
 func (m *RegisterManager) SetOnReadCallback(callback func(registers []DeviceRegister)) {
 	m.mu.Lock()
@@ -91,19 +101,21 @@ func (m *RegisterManager) GroupDeviceRegister(registers []DeviceRegister) [][]De
 }
 
 // ReadGroupedData reads grouped data either concurrently or sequentially
-func (m *RegisterManager) ReadGroupedData() {
+func (m *RegisterManager) ReadGroupedData() []error {
 	var result [][]DeviceRegister
+	var errors []error
 	if m.clientType == "TCP" {
-		result = ReadGroupedDataConcurrently(m.client, m.groupedRegisters)
+		result, errors = ReadGroupedDataConcurrently(m.client, m.groupedRegisters)
 	} else {
-		result = ReadGroupedDataSequential(m.client, m.groupedRegisters)
+		result, errors = ReadGroupedDataSequential(m.client, m.groupedRegisters)
 	}
 
 	for _, group := range result {
 		select {
 		case m.dataQueue <- group:
 		case <-m.exitSignal:
-			return
+			return nil
 		}
 	}
+	return errors
 }

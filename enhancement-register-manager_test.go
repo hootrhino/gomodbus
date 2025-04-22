@@ -7,14 +7,25 @@ import (
 	"time"
 )
 
-func MakeNewTestClient() Client {
+func MakeNewTestUartClient() Client {
 	handler := NewRTUClientHandler("COM3")
 	handler.BaudRate = 9600
 	handler.DataBits = 8
 	handler.Parity = "N"
 	handler.StopBits = 1
 	handler.SlaveId = 1
-	handler.Logger = NewSimpleLogger(os.Stdout, LevelDebug)
+	handler.Logger = NewSimpleLogger(os.Stdout, LevelDebug, "TEST")
+	err := handler.Connect()
+	if err != nil {
+		panic(err)
+	}
+	client := NewClient(handler)
+	return client
+}
+
+func MakeNewTestTcpClient() Client {
+	handler := NewTCPClientHandler("127.0.0.1:5020")
+	handler.Logger = NewSimpleLogger(os.Stdout, LevelDebug, "TEST")
 	err := handler.Connect()
 	if err != nil {
 		panic(err)
@@ -23,7 +34,7 @@ func MakeNewTestClient() Client {
 	return client
 }
 func Test_RegisterManager_Decode_bool(t *testing.T) {
-	client := MakeNewTestClient()
+	client := MakeNewTestUartClient()
 	defer client.Close()
 	manager := NewRegisterManager(client, 10)
 
@@ -64,7 +75,7 @@ func Test_RegisterManager_Decode_bool(t *testing.T) {
 	manager.Stop()
 }
 func Test_RegisterManager_Decode_uint16(t *testing.T) {
-	client := MakeNewTestClient()
+	client := MakeNewTestUartClient()
 	defer client.Close()
 	manager := NewRegisterManager(client, 10)
 
@@ -115,7 +126,7 @@ func Test_RegisterManager_Decode_uint16(t *testing.T) {
 }
 
 func Test_RegisterManager_Decode_uint32(t *testing.T) {
-	client := MakeNewTestClient()
+	client := MakeNewTestUartClient()
 	defer client.Close()
 	manager := NewRegisterManager(client, 10)
 	registers := []DeviceRegister{}
@@ -165,7 +176,7 @@ func Test_RegisterManager_Decode_uint32(t *testing.T) {
 }
 
 func Test_RegisterManager_Decode_float32(t *testing.T) {
-	client := MakeNewTestClient()
+	client := MakeNewTestUartClient()
 	defer client.Close()
 	manager := NewRegisterManager(client, 10)
 	registers := []DeviceRegister{}

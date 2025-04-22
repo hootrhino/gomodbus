@@ -44,11 +44,12 @@ type SimpleLogger struct {
 	level      LogLevel
 	output     io.WriteCloser
 	timeFormat string
+	prefix     string
 }
 
 // NewSimpleLogger creates a new SimpleLogger instance.
 // If output is nil, it defaults to os.Stdout.
-func NewSimpleLogger(output io.WriteCloser, level LogLevel) *SimpleLogger {
+func NewSimpleLogger(output io.WriteCloser, level LogLevel, prefix string) *SimpleLogger {
 	if output == nil {
 		output = os.Stdout
 	}
@@ -56,6 +57,7 @@ func NewSimpleLogger(output io.WriteCloser, level LogLevel) *SimpleLogger {
 		level:      level,
 		output:     output,
 		timeFormat: time.RFC3339,
+		prefix:     prefix,
 	}
 }
 
@@ -102,7 +104,7 @@ func (l *SimpleLogger) Write(p []byte) (n int, err error) {
 		defer l.mu.Unlock()
 		timestamp := time.Now().Format(l.timeFormat)
 		levelStr := LevelToString[level]
-		formattedMessage := fmt.Sprintf("%s [%s] %s", timestamp, levelStr, strings.TrimSpace(message))
+		formattedMessage := fmt.Sprintf("%s [%s] <%s> %s", timestamp, levelStr, l.prefix, strings.TrimSpace(message))
 		return l.output.Write([]byte(formattedMessage + "\n"))
 	}
 	return len(p), nil

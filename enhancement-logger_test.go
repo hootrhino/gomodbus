@@ -9,7 +9,7 @@ import (
 func TestLogger(t *testing.T) {
 
 	// Example usage with os.Stdout
-	loggerStdout := NewSimpleLogger(nil, LevelDebug)
+	loggerStdout := NewSimpleLogger(nil, LevelDebug, "TEST")
 	defer loggerStdout.Close()
 
 	loggerStdout.Write([]byte("DEBUG: This is a debug message"))
@@ -30,7 +30,7 @@ func TestLogger(t *testing.T) {
 		fmt.Println("Error creating log file:", err)
 		return
 	}
-	loggerFile := NewSimpleLogger(file, LevelInfo)
+	loggerFile := NewSimpleLogger(file, LevelInfo, "TEST")
 	defer loggerFile.Close()
 
 	loggerFile.Write([]byte("INFO: Logging to file"))

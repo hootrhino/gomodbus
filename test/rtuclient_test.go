@@ -29,7 +29,7 @@ func TestRTUClientAdvancedUsage(t *testing.T) {
 	handler.Parity = "E"
 	handler.StopBits = 1
 	handler.SlaveId = 11
-	handler.Logger = modbus.NewSimpleLogger(os.Stdout, modbus.LevelDebug)
+	handler.Logger = modbus.NewSimpleLogger(os.Stdout, modbus.LevelDebug, "TEST")
 	err := handler.Connect()
 	if err != nil {
 		t.Fatal(err)
