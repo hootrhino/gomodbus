@@ -1,927 +1,1121 @@
 package modbus
 
 import (
-	"encoding/csv"
-	"encoding/hex"
-	"encoding/json"
-	"fmt"
-	"log"
+	"bytes"
+	"encoding/binary"
 	"math"
-	"os"
-	"strconv"
-	"strings"
 	"testing"
-	"time"
 )
 
-func Test_float32FromBits(t *testing.T) {
+// TestReorderBytes verifies byte order handling
+func TestReorderBytes(t *testing.T) {
+	data := []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
+
 	tests := []struct {
-		name   string
-		bits   uint32
-		expect float32
+		name     string
+		order    string
+		expected []byte
 	}{
-		{
-			name:   "positive_float",
-			bits:   0x42480000, // 50.0 in IEEE 754
-			expect: 50.0,
-		},
-		{
-			name:   "negative_float",
-			bits:   0xC2480000, // -50.0 in IEEE 754
-			expect: -50.0,
-		},
-		{
-			name:   "zero",
-			bits:   0x00000000, // 0.0 in IEEE 754
-			expect: 0.0,
-		},
-		{
-			name:   "small_float",
-			bits:   0x3DCCCCCD, // 0.1 in IEEE 754
-			expect: 0.1,
-		},
+		{"Single byte A", "A", []byte{0x01}},
+		{"Little-endian AB", "AB", []byte{0x01, 0x02}},
+		{"Big-endian BA", "BA", []byte{0x02, 0x01}},
+		{"Little-endian 4-byte ABCD", "ABCD", []byte{0x01, 0x02, 0x03, 0x04}},
+		{"Big-endian 4-byte DCBA", "DCBA", []byte{0x04, 0x03, 0x02, 0x01}},
+		{"Word-swapped BADC", "BADC", []byte{0x02, 0x01, 0x04, 0x03}},
+		{"Word-swapped CDAB", "CDAB", []byte{0x03, 0x04, 0x01, 0x02}},
+		{"Little-endian 8-byte ABCDEFGH", "ABCDEFGH", []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}},
+		{"Big-endian 8-byte HGFEDCBA", "HGFEDCBA", []byte{0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01}},
+		{"Word-swapped 8-byte BADCFEHG", "BADCFEHG", []byte{0x02, 0x01, 0x04, 0x03, 0x06, 0x05, 0x08, 0x07}},
+		{"Word-swapped 8-byte GHEFCDAB", "GHEFCDAB", []byte{0x07, 0x08, 0x05, 0x06, 0x03, 0x04, 0x01, 0x02}},
+		{"Unknown format", "XYZ", data},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := float32FromBits(tt.bits)
-			t.Log("== float32FromBits", result)
-			if math.Abs(float64(result-tt.expect)) > 0.0001 {
-				t.Errorf("float32FromBits(%#x) = %f, want %f", tt.bits, result, tt.expect)
+			result := reorderBytes(data, tt.order)
+			if !bytes.Equal(result, tt.expected) {
+				t.Errorf("reorderBytes(%v, %s) = %v, want %v", data, tt.order, result, tt.expected)
 			}
 		})
 	}
+
+	// Test with insufficient data length
+	shortData := []byte{0x01, 0x02}
+	result := reorderBytes(shortData, "ABCD")
+	if len(result) != len(shortData) {
+		t.Errorf("reorderBytes should return original data when length is insufficient, got %v", result)
+	}
 }
 
-func Test_float64FromBits(t *testing.T) {
+// TestDecodeValue_Int32 tests decoding of int32 values
+func TestDecodeValue_Int32(t *testing.T) {
 	tests := []struct {
-		name   string
-		bits   uint64
-		expect float64
+		name       string
+		value      []byte
+		dataOrder  string
+		weight     float64
+		expectType int32
+		expectF64  float64
+		expectErr  bool
 	}{
 		{
-			name:   "positive_float",
-			bits:   0x4049000000000000, // 50.0 in IEEE 754
-			expect: 50.0,
+			name:       "Int32 positive value",
+			value:      []byte{0x5A, 0xA5, 0xA5, 0x5A},
+			dataOrder:  "ABCD",
+			weight:     1.0,
+			expectType: 0x5AA5A55A,
+			expectF64:  1520805210.0,
 		},
 		{
-			name:   "negative_float",
-			bits:   0xC049000000000000, // -50.0 in IEEE 754
-			expect: -50.0,
+			name:       "Int32 negative value",
+			value:      []byte{0x80, 0x00, 0x00, 0x00},
+			dataOrder:  "ABCD",
+			weight:     1.0,
+			expectType: -2147483648,
+			expectF64:  -2147483648.0,
 		},
 		{
-			name:   "zero",
-			bits:   0x0000000000000000, // 0.0 in IEEE 754
-			expect: 0.0,
+			name:       "Int32 big-endian (DCBA)",
+			value:      []byte{0x00, 0x00, 0x00, 0x80},
+			dataOrder:  "DCBA",
+			weight:     1.0,
+			expectType: -2147483648,
+			expectF64:  -2147483648.0,
 		},
 		{
-			name:   "pi",
-			bits:   0x400921FB54442D18, // 3.141592653589793 in IEEE 754
-			expect: 3.141592653589793,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := float64FromBits(tt.bits)
-			t.Log("== float64FromBits", result)
-			if math.Abs(result-tt.expect) > 0.0000001 {
-				t.Errorf("float64FromBits(%#x) = %f, want %f", tt.bits, result, tt.expect)
-			}
-		})
-	}
-}
-
-// go test -timeout 30s -run ^Test_GroupDeviceRegister$ github.com/hootrhino/gomodbus -v -count=1
-func Test_GroupDeviceRegister(t *testing.T) {
-	input := []DeviceRegister{
-		{Tag: "F", Alias: "A6", SlaverId: 1, Function: 3, ReadAddress: 1, ReadQuantity: 1},
-		{Tag: "A", Alias: "A1", SlaverId: 1, Function: 3, ReadAddress: 2, ReadQuantity: 1},
-		{Tag: "B", Alias: "A2", SlaverId: 1, Function: 3, ReadAddress: 4, ReadQuantity: 1},
-		{Tag: "C", Alias: "A3", SlaverId: 1, Function: 3, ReadAddress: 5, ReadQuantity: 1},
-		{Tag: "D", Alias: "A4", SlaverId: 1, Function: 3, ReadAddress: 8, ReadQuantity: 1},
-		{Tag: "E", Alias: "A5", SlaverId: 1, Function: 3, ReadAddress: 9, ReadQuantity: 1},
-		{Tag: "G", Alias: "A7", SlaverId: 1, Function: 3, ReadAddress: 10, ReadQuantity: 1},
-	}
-
-	{
-		grouped := GroupDeviceRegisterWithUniqueAddress(input)
-		jsonData, err := json.MarshalIndent(grouped, "", "  ")
-		if err != nil {
-			t.Fatalf("error marshalling result: %v", err)
-		}
-		t.Logf("Grouped: %s", string(jsonData))
-	}
-	handler := NewRTUClientHandler("COM3")
-	handler.BaudRate = 9600
-	handler.DataBits = 8
-	handler.Parity = "N"
-	handler.StopBits = 1
-	handler.SlaveId = 1
-	handler.Logger = NewSimpleLogger(os.Stdout, LevelDebug, "TEST")
-
-	err := handler.Connect()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer handler.Close()
-	client := NewClient(handler)
-	defer client.Close()
-	result, errs := client.ReadGroupedRegisterValue(input)
-	if len(errs) > 0 {
-
-		for _, err := range errs {
-			t.Logf("Error reading registers: %v", err)
-		}
-		t.Fail()
-	}
-	for i, group := range result {
-		for j, reg := range group {
-			t.Logf("======= group->%v  reg=%v  Address= %v  Tag= %v", i, j, reg.ReadAddress, reg.Tag)
-		}
-	}
-}
-
-// go test -timeout 30s -run ^Test_GroupDevice_UART_125_Registers$ github.com/hootrhino/gomodbus -v -count=1
-func Test_GroupDevice_UART_125_Registers(t *testing.T) {
-	// Group 1: 1-25
-	input1 := make([]DeviceRegister, 10)
-	for i := 0; i < 10; i++ {
-		input1[i].ReadAddress = uint16(i + 1)
-		input1[i].Tag = fmt.Sprintf("Tag%d", i+1)
-		input1[i].Alias = fmt.Sprintf("Alias%d", i+1)
-		input1[i].Function = 3
-		input1[i].SlaverId = 1
-		input1[i].Frequency = 1
-		input1[i].ReadQuantity = 1
-		input1[i].DataType = "uint16"
-		input1[i].DataOrder = "ABCD"
-		input1[i].Weight = 1.0
-		input1[i].Value = [8]byte{0, 0, 0, 0}
-	}
-	input2 := make([]DeviceRegister, 10)
-	for i := 26; i < 36; i++ {
-		input2[i-26].ReadAddress = uint16(i + 1)
-		input2[i-26].Tag = fmt.Sprintf("Tag%d", i+1)
-		input2[i-26].Alias = fmt.Sprintf("Alias%d", i+1)
-		input2[i-26].Function = 3
-		input2[i-26].SlaverId = 1
-		input2[i-26].Frequency = 1
-		input2[i-26].ReadQuantity = 1
-		input2[i-26].DataType = "uint16"
-		input2[i-26].DataOrder = "ABCD"
-		input2[i-26].Weight = 1.0
-		input2[i-26].Value = [8]byte{0, 0, 0, 0}
-	}
-
-	// Group the registers
-	handler := NewRTUClientHandler("COM3")
-	handler.BaudRate = 9600
-	handler.DataBits = 8
-	handler.Parity = "N"
-	handler.StopBits = 1
-	handler.SlaveId = 1
-	handler.Logger = NewSimpleLogger(os.Stdout, LevelDebug, "TEST")
-
-	err := handler.Connect()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer handler.Close()
-	client := NewClient(handler)
-	defer client.Close()
-	testGroup(t, client, input1)
-	testGroup(t, client, input2)
-}
-func Test_Group_UART_Device_1_Bool_Register(t *testing.T) {
-	handler := NewRTUClientHandler("COM3")
-	handler.BaudRate = 9600
-	handler.DataBits = 8
-	handler.Parity = "N"
-	handler.StopBits = 1
-	handler.SlaveId = 1
-	handler.Logger = NewSimpleLogger(os.Stdout, LevelDebug, "TEST")
-
-	err := handler.Connect()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer handler.Close()
-	client := NewClient(handler)
-	defer client.Close()
-	input1 := make([]DeviceRegister, 1)
-	for i := 0; i < 16; i++ {
-		t.Log("======= Test_Group_UART_Device_1_Bool_Register", i)
-		input1[0].ReadAddress = uint16(4) // 0000 0000 0000 0100
-		input1[0].Tag = "Tag1"
-		input1[0].Alias = "Alias1"
-		input1[0].Function = 3
-		input1[0].SlaverId = 1
-		input1[0].Frequency = 1
-		input1[0].ReadQuantity = 1
-		input1[0].DataType = "bool"
-		input1[0].DataOrder = "A"
-		input1[0].Weight = 1.0
-		input1[0].Value = [8]byte{0, 0, 0, 0}
-		input1[0].BitPosition = uint16(i)
-		testGroup(t, client, input1)
-	}
-
-}
-
-// go test -timeout 30s -run ^Test_Group_TCP_Device_125_Registers$ github.com/hootrhino/gomodbus -v -count=1
-func Test_Group_TCP_Device_125_Registers(t *testing.T) {
-	// Group 1: 1-25
-	input1 := make([]DeviceRegister, 10)
-	for i := 0; i < 10; i++ {
-		input1[i].ReadAddress = uint16(i + 1)
-		input1[i].Tag = fmt.Sprintf("Tag%d", i+1)
-		input1[i].Alias = fmt.Sprintf("Alias%d", i+1)
-		input1[i].Function = 3
-		input1[i].SlaverId = 1
-		input1[i].Frequency = 1
-		input1[i].ReadQuantity = 1
-		input1[i].DataType = "uint16"
-		input1[i].DataOrder = "ABCD"
-		input1[i].Weight = 1.0
-		input1[i].Value = [8]byte{0, 0, 0, 0}
-	}
-	input2 := make([]DeviceRegister, 10)
-	for i := 26; i < 36; i++ {
-		input2[i-26].ReadAddress = uint16(i + 1)
-		input2[i-26].Tag = fmt.Sprintf("Tag%d", i+1)
-		input2[i-26].Alias = fmt.Sprintf("Alias%d", i+1)
-		input2[i-26].Function = 3
-		input2[i-26].SlaverId = 1
-		input2[i-26].Frequency = 1
-		input2[i-26].ReadQuantity = 1
-		input2[i-26].DataType = "uint16"
-		input2[i-26].DataOrder = "ABCD"
-		input2[i-26].Weight = 1.0
-		input2[i-26].Value = [8]byte{0, 0, 0, 0}
-	}
-
-	// Group the registers
-	handler := NewTCPClientHandler("127.0.0.1:502")
-	handler.SlaveId = 1
-	handler.Logger = NewSimpleLogger(os.Stdout, LevelDebug, "TEST")
-
-	err := handler.Connect()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer handler.Close()
-	client := NewClient(handler)
-	defer client.Close()
-	for i := 0; i < 100000; i++ {
-		testGroup(t, client, input1)
-		testGroup(t, client, input2)
-	}
-
-}
-
-func testGroup(t *testing.T, client Client, input []DeviceRegister) {
-	result, errs := client.ReadGroupedRegisterValue(input)
-	if len(errs) > 0 {
-
-		for _, err := range errs {
-			t.Logf("Error reading registers: %v", err)
-		}
-		t.Fatalf("Failed to read registers: %v", errs)
-	}
-	for i, group := range result {
-		t.Logf("== ReadGroupedRegisterValue.[%v]", i)
-		for _, reg := range group {
-			decodeValue, err := reg.DecodeValue()
-			if err != nil {
-				t.Errorf("Error decoding value: %v", err)
-			}
-			t.Logf(
-				`
-============= Value =============
-R.Tag: %v
-R.Alias: %v
-R.SlaverId: %v
-R.Function: %v
-R.Address: %v
-R.Quantity: %v
-R.DataOrder: %v
-R.DataType: %v
-R.Weight: %v
-R.Value: %v
-R.Status: %v
----------------------------------
-V.AsType: %v
-V.Float64: %v
-=================================
-`,
-				reg.Tag, reg.Alias, reg.SlaverId,
-				reg.Function, reg.ReadAddress, reg.ReadQuantity,
-				reg.DataOrder, reg.DataType, reg.Weight, reg.Value, reg.Status,
-				decodeValue.AsType, decodeValue.GetFloat64Value(4))
-		}
-	}
-}
-
-func Test_DeviceRegister_DecodeValue(t *testing.T) {
-	tests := []struct {
-		name      string
-		register  DeviceRegister
-		expect    DecodedValue
-		expectErr bool
-	}{
-		{
-			name: "bool",
-			register: DeviceRegister{
-				DataType:    "bool",
-				BitPosition: 0x01,
-				Value:       [8]byte{0x03, 0x00, 0x00, 0x00}, // 0x03 & 0x01 = 0x01
-			},
-			expect: DecodedValue{
-				Raw:     []byte{0x03},
-				Float64: 1.0,
-				AsType:  uint8(0x01),
-			},
-			expectErr: false,
+			name:       "Int32 word-swapped BADC",
+			value:      []byte{0x00, 0x80, 0x00, 0x00},
+			dataOrder:  "BADC",
+			weight:     1.0,
+			expectType: -2147483648,
+			expectF64:  -2147483648.0,
 		},
 		{
-			name: "uint8",
-			register: DeviceRegister{
-				DataType: "uint8",
-				Value:    [8]byte{0xFF, 0x00, 0x00, 0x00}, // 255
-			},
-			expect: DecodedValue{
-				Raw:     []byte{0xFF},
-				Float64: 255.0,
-				AsType:  uint8(255),
-			},
-			expectErr: false,
+			name:       "Int32 with weight -2.5",
+			value:      []byte{0x00, 0x00, 0x00, 0x01},
+			dataOrder:  "ABCD",
+			weight:     -2.5,
+			expectType: 1,
+			expectF64:  -2.5, // 1 * -2.5 = -2.5
 		},
 		{
-			name: "int8",
-			register: DeviceRegister{
-				DataType: "int8",
-				Value:    [8]byte{0x80, 0x00, 0x00, 0x00}, // -128
-			},
-			expect: DecodedValue{
-				Raw:     []byte{0x80},
-				Float64: -128.0,
-				AsType:  int8(-128),
-			},
-			expectErr: false,
-		},
-		{
-			name: "uint16",
-			register: DeviceRegister{
-				DataType: "uint16",
-				Value:    [8]byte{0x12, 0x34, 0x00, 0x00}, // 0x1234 = 4660
-			},
-			expect: DecodedValue{
-				Raw:     []byte{0x12, 0x34},
-				Float64: 4660.0,
-				AsType:  uint16(4660),
-			},
-			expectErr: false,
-		},
-		{
-			name: "int16",
-			register: DeviceRegister{
-				DataType: "int16",
-				Value:    [8]byte{0xFF, 0xFE, 0x00, 0x00}, // -2
-			},
-			expect: DecodedValue{
-				Raw:     []byte{0xFF, 0xFE},
-				Float64: -2.0,
-				AsType:  int16(-2),
-			},
-			expectErr: false,
-		},
-		{
-			name: "uint32",
-			register: DeviceRegister{
-				DataType: "uint32",
-				Value:    [8]byte{0x12, 0x34, 0x56, 0x78}, // 0x12345678 = 305419896
-			},
-			expect: DecodedValue{
-				Raw:     []byte{0x12, 0x34, 0x56, 0x78},
-				Float64: 305419896.0,
-				AsType:  uint32(305419896),
-			},
-			expectErr: false,
-		},
-		{
-			name: "int32",
-			register: DeviceRegister{
-				DataType: "int32",
-				Value:    [8]byte{0xFF, 0xFF, 0xFF, 0xFE}, // -2
-			},
-			expect: DecodedValue{
-				Raw:     []byte{0xFF, 0xFF, 0xFF, 0xFE},
-				Float64: -2.0,
-				AsType:  int32(-2),
-			},
-			expectErr: false,
-		},
-		{
-			name: "float32",
-			register: DeviceRegister{
-				DataType: "float32",
-				Value:    [8]byte{0x42, 0x48, 0x00, 0x00}, // 50.0 in IEEE 754
-			},
-			expect: DecodedValue{
-				Raw:     []byte{0x42, 0x48, 0x00, 0x00},
-				Float64: 50.0,
-				AsType:  float32(50.0),
-			},
-			expectErr: false,
-		},
-		{
-			name: "float32-pi",
-			register: DeviceRegister{
-				DataType: "float32",
-				Value:    [8]byte{0x40, 0x49, 0x0F, 0xDC}, // Pi
-			},
-			expect: DecodedValue{
-				Raw:     []byte{0x40, 0x49, 0x0F, 0xDC},
-				Float64: 3.1415929794311523,
-				AsType:  float32(3.1415929794311523),
-			},
-			expectErr: false,
-		},
-		{
-			name: "unsupported_data_type",
-			register: DeviceRegister{
-				DataType: "unsupported",
-				Value:    [8]byte{0x00, 0x00, 0x00, 0x00},
-			},
-			expect:    DecodedValue{},
+			name:      "Int32 insufficient bytes",
+			value:     []byte{0x5A, 0xA5, 0xA5},
+			dataOrder: "ABCD",
 			expectErr: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := tt.register.DecodeValue()
-			if (err != nil) != tt.expectErr {
-				t.Errorf("DecodeValue() error = %v, expectErr = %v", err, tt.expectErr)
+			reg := DeviceRegister{
+				DataType:  "int32",
+				DataOrder: tt.dataOrder,
+				Weight:    tt.weight,
+				Value:     tt.value,
+			}
+
+			result, err := reg.DecodeValue()
+
+			if tt.expectErr {
+				if err == nil {
+					t.Errorf("Expected error but got none")
+				}
 				return
 			}
-			t.Log("== result.Raw, tt.expect.Raw == ", result.Raw, tt.expect.Raw)
-			if !tt.expectErr {
-				if result.Float64 != tt.expect.Float64 {
-					t.Errorf("result.Float64 != tt.expect.Float64 = %v, want %v; result=%v expect=%v",
-						result, tt.expect, result.Float64, tt.expect.Float64)
-				}
-				a := [8]byte{}
-				b := [8]byte{}
-				copy(a[:], result.Raw)
-				copy(b[:], tt.expect.Raw)
-				log.Printf("== a = %v, b = %v", a, b)
-				if !compare2BytesEqual(a, b) {
-					t.Errorf("XXX compareBytes() Raw = %v, want %v", result.Raw, tt.expect.Raw)
-				}
-				if hex.EncodeToString(a[:]) != hex.EncodeToString(b[:]) {
-					t.Errorf("EncodeToString error Raw = %v, want %v", result.Raw, tt.expect.Raw)
-				}
-			}
-		})
-	}
-}
 
-// compare2BytesEqual parses two byte slices into unsigned integers and compares them
-func compare2BytesEqual(a, b [8]byte) bool {
-	// Parse both byte slices into unsigned integers
-	var valA, valB uint64
-	for i := 0; i < len(a); i++ {
-		valA = (valA << 8) | uint64(a[i])
-		valB = (valB << 8) | uint64(b[i])
-	}
-
-	// Compare the parsed values
-	return valA == valB
-}
-
-// LoadRegisterFromCSV loads DeviceRegister data from a CSV file
-func LoadRegisterFromCSV(filePath string) ([]DeviceRegister, error) {
-	// Open the CSV file
-	file, err := os.Open(filePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open CSV file: %w", err)
-	}
-	defer file.Close()
-
-	// Create CSV reader
-	reader := csv.NewReader(file)
-	reader.TrimLeadingSpace = true
-
-	// Read headers
-	headers, err := reader.Read()
-	if err != nil {
-		return nil, fmt.Errorf("failed to read CSV headers: %w", err)
-	}
-
-	// Expected headers
-	expectedHeaders := []string{
-		"Tag", "Alias", "SlaverId", "Function", "ReadAddress",
-		"ReadQuantity", "DataType", "DataOrder", "BitPosition",
-		"BitMask", "Weight", "Frequency",
-	}
-
-	// Validate headers
-	if len(headers) != len(expectedHeaders) {
-		return nil, fmt.Errorf("invalid number of headers: expected %d, got %d", len(expectedHeaders), len(headers))
-	}
-	for i, header := range headers {
-		if strings.TrimSpace(header) != expectedHeaders[i] {
-			return nil, fmt.Errorf("invalid header at position %d: expected %s, got %s", i, expectedHeaders[i], header)
-		}
-	}
-
-	// Read records
-	var registers []DeviceRegister
-	for {
-		record, err := reader.Read()
-		if err != nil {
-			if err.Error() == "EOF" {
-				break
-			}
-			return nil, fmt.Errorf("failed to read CSV record: %w", err)
-		}
-
-		// Validate record length
-		if len(record) != len(expectedHeaders) {
-			return nil, fmt.Errorf("invalid record length: expected %d fields, got %d", len(expectedHeaders), len(record))
-		}
-
-		// Parse fields
-		slaverId, err := strconv.ParseUint(record[2], 10, 8)
-		if err != nil {
-			return nil, fmt.Errorf("invalid slaverId '%s': %w", record[2], err)
-		}
-
-		function, err := strconv.ParseUint(record[3], 10, 8)
-		if err != nil {
-			return nil, fmt.Errorf("invalid function '%s': %w", record[3], err)
-		}
-
-		readAddress, err := strconv.ParseUint(record[4], 10, 16)
-		if err != nil {
-			return nil, fmt.Errorf("invalid readAddress '%s': %w", record[4], err)
-		}
-
-		readQuantity, err := strconv.ParseUint(record[5], 10, 16)
-		if err != nil {
-			return nil, fmt.Errorf("invalid readQuantity '%s': %w", record[5], err)
-		}
-
-		bitPosition, err := strconv.ParseUint(record[8], 10, 16)
-		if err != nil {
-			return nil, fmt.Errorf("invalid bitPosition '%s': %w", record[8], err)
-		}
-
-		// Handle bitMask (could be hexadecimal or decimal)
-		var bitMask uint64
-		if strings.HasPrefix(strings.ToLower(record[9]), "0x") {
-			bitMask, err = strconv.ParseUint(record[9][2:], 16, 16)
-		} else {
-			bitMask, err = strconv.ParseUint(record[9], 10, 16)
-		}
-		if err != nil {
-			return nil, fmt.Errorf("invalid bitMask '%s': %w", record[9], err)
-		}
-
-		weight, err := strconv.ParseFloat(record[10], 64)
-		if err != nil {
-			return nil, fmt.Errorf("invalid weight '%s': %w", record[10], err)
-		}
-
-		frequency, err := strconv.ParseUint(record[11], 10, 64)
-		if err != nil {
-			return nil, fmt.Errorf("invalid frequency '%s': %w", record[11], err)
-		}
-
-		// Create DeviceRegister
-		register := DeviceRegister{
-			Tag:          strings.TrimSpace(record[0]),
-			Alias:        strings.TrimSpace(record[1]),
-			SlaverId:     uint8(slaverId),
-			Function:     uint8(function),
-			ReadAddress:  uint16(readAddress),
-			ReadQuantity: uint16(readQuantity),
-			DataType:     strings.TrimSpace(record[6]),
-			DataOrder:    strings.TrimSpace(record[7]),
-			BitPosition:  uint16(bitPosition),
-			BitMask:      uint16(bitMask),
-			Weight:       weight,
-			Frequency:    frequency,
-		}
-
-		registers = append(registers, register)
-	}
-
-	if len(registers) == 0 {
-		return nil, fmt.Errorf("no valid records found in CSV")
-	}
-
-	return registers, nil
-}
-
-// go test -timeout 30s -run ^Test_LoadRegisterFromCSV$ github.com/hootrhino/gomodbus -v -count=1
-type testMqttData struct {
-	Header map[string]any `json:"header"`
-	Body   map[string]any `json:"body"`
-}
-
-func Test_LoadRegisterFromCSV(t *testing.T) {
-	filePath := "./test/modbus_registers.csv"
-	registers, err1 := LoadRegisterFromCSV(filePath)
-	if err1 != nil {
-		t.Fatalf("Failed to load registers from CSV: %v", err1)
-	}
-	// handler := NewTCPClientHandler("127.0.0.1:502")
-	handler := NewRTUClientHandler("COM3")
-	handler.BaudRate = 9600
-	handler.DataBits = 8
-	handler.Parity = "N"
-	handler.StopBits = 1
-	handler.Logger = NewSimpleLogger(os.Stdout, LevelDebug, "TEST")
-
-	err := handler.Connect()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer handler.Close()
-	client := NewClient(handler)
-	defer client.Close()
-	manager := NewRegisterManager(client, 10)
-	manager.LoadRegisters(registers)
-	manager.SetOnErrorCallback(func(err error) {
-		t.Log(err)
-	})
-	manager.SetOnReadCallback(func(registers []DeviceRegister) {
-		for _, register := range registers {
-			value, err := register.DecodeValue()
 			if err != nil {
-				t.Fatal(err)
-			}
-			t.Log(fmt.Sprintf("tag:%s, value:%v", register.Tag, value.String()))
-		}
-	})
-	manager.Start()
-	for range 10 {
-		manager.ReadGroupedData()
-	}
-
-	time.Sleep(4 * time.Second)
-	manager.Stop()
-}
-func Test_DeviceRegister_Decode_Bool_true_Value(t *testing.T) {
-	tests := []struct {
-		name      string
-		register  DeviceRegister
-		expect    DecodedValue
-		expectErr bool
-	}{}
-	for i := 0; i < 16; i++ {
-		tests = append(tests, struct {
-			name      string
-			register  DeviceRegister
-			expect    DecodedValue
-			expectErr bool
-		}{
-			name: fmt.Sprintf("bool-%v", i),
-			register: DeviceRegister{
-				DataType:    "bool",
-				BitPosition: uint16(i),
-				Value:       [8]byte{0xFF, 0xFF, 0xFF, 0xFF},
-			},
-			expect: DecodedValue{
-				Raw:     []byte{0xFF, 0xFF, 0xFF, 0xFF},
-				Float64: 1.0,
-				AsType:  bool(true),
-			},
-			expectErr: false,
-		})
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result, err := tt.register.DecodeValue()
-			if (err != nil) != tt.expectErr {
-				t.Errorf("DecodeValue() error = %v, expectErr = %v", err, tt.expectErr)
+				t.Errorf("Unexpected error: %v", err)
 				return
 			}
-			t.Log("== ", result.String())
-			if !tt.expectErr {
-				if result.Float64 != tt.expect.Float64 {
-					t.Errorf("result.Float64!= tt.expect.Float64 = %v, want %v; result=%v expect=%v",
-						result, tt.expect, result.Float64, tt.expect.Float64)
+
+			if val, ok := result.AsType.(int32); ok {
+				if val != tt.expectType {
+					t.Errorf("Expected type value %d, got %d", tt.expectType, val)
 				}
+			} else {
+				t.Errorf("Expected AsType to be int32, got %T", result.AsType)
 			}
 
+			if !FuzzyEqual(result.Float64, tt.expectF64) {
+				t.Errorf("Expected float64 value %f, got %f", tt.expectF64, result.Float64)
+			}
 		})
 	}
 }
-func Test_DeviceRegister_Decode_Bool_false_Value(t *testing.T) {
-	tests := []struct {
-		name      string
-		register  DeviceRegister
-		expect    DecodedValue
-		expectErr bool
-	}{}
-	for i := 0; i < 16; i++ {
-		tests = append(tests, struct {
-			name      string
-			register  DeviceRegister
-			expect    DecodedValue
-			expectErr bool
-		}{
-			name: fmt.Sprintf("bool-%v", i),
-			register: DeviceRegister{
-				DataType:    "bool",
-				BitPosition: uint16(i),
-				Value:       [8]byte{0x0},
-			},
-			expect: DecodedValue{
-				Raw:     []byte{0x0},
-				Float64: 0,
-				AsType:  bool(true),
-			},
-			expectErr: false,
-		})
+
+// TestDecodeValue_Float32 tests decoding of float32 values
+func TestDecodeValue_Float32(t *testing.T) {
+	// Helper function to create IEEE-754 float32 bytes
+	createFloat32Bytes := func(f float32) []byte {
+		bits := math.Float32bits(f)
+		bytes := make([]byte, 4)
+		binary.BigEndian.PutUint32(bytes, bits)
+		return bytes
 	}
+
+	tests := []struct {
+		name       string
+		value      []byte
+		dataOrder  string
+		weight     float64
+		expectType float32
+		expectF64  float64
+		expectErr  bool
+	}{
+		{
+			name:       "Float32 positive value 123.456",
+			value:      createFloat32Bytes(123.456),
+			dataOrder:  "ABCD",
+			weight:     1.0,
+			expectType: 123.456,
+			expectF64:  123.456,
+		},
+		{
+			name:       "Float32 negative value -123.456",
+			value:      createFloat32Bytes(-123.456),
+			dataOrder:  "ABCD",
+			weight:     1.0,
+			expectType: -123.456,
+			expectF64:  -123.456,
+		},
+		{
+			name: "Float32 big-endian (DCBA)",
+			value: []byte{
+				createFloat32Bytes(123.456)[3],
+				createFloat32Bytes(123.456)[2],
+				createFloat32Bytes(123.456)[1],
+				createFloat32Bytes(123.456)[0],
+			},
+			dataOrder:  "DCBA",
+			weight:     1.0,
+			expectType: 123.456,
+			expectF64:  123.456,
+		},
+		{
+			name: "Float32 word-swapped BADC",
+			value: []byte{
+				createFloat32Bytes(123.456)[1],
+				createFloat32Bytes(123.456)[0],
+				createFloat32Bytes(123.456)[3],
+				createFloat32Bytes(123.456)[2],
+			},
+			dataOrder:  "BADC",
+			weight:     1.0,
+			expectType: 123.456,
+			expectF64:  123.456,
+		},
+		{
+			name:       "Float32 with weight 2.5",
+			value:      createFloat32Bytes(123.456),
+			dataOrder:  "ABCD",
+			weight:     2.5,
+			expectType: 123.456,
+			expectF64:  308.64, // 123.456 * 2.5 = 308.64
+		},
+		{
+			name:      "Float32 insufficient bytes",
+			value:     []byte{0x5A, 0xA5, 0xA5},
+			dataOrder: "ABCD",
+			expectErr: true,
+		},
+	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := tt.register.DecodeValue()
-			if (err != nil) != tt.expectErr {
-				t.Errorf("DecodeValue() error = %v, expectErr = %v", err, tt.expectErr)
-				return
-			}
-			t.Log("== ", result.String())
-			if !tt.expectErr {
-				if result.Float64 != tt.expect.Float64 {
-					t.Errorf("result.Float64!= tt.expect.Float64 = %v, want %v; result=%v expect=%v",
-						result, tt.expect, result.Float64, tt.expect.Float64)
-				}
+			reg := DeviceRegister{
+				DataType:  "float32",
+				DataOrder: tt.dataOrder,
+				Weight:    tt.weight,
+				Value:     tt.value,
 			}
 
+			result, err := reg.DecodeValue()
+
+			if tt.expectErr {
+				if err == nil {
+					t.Errorf("Expected error but got none")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("Unexpected error: %v", err)
+				return
+			}
+
+			if val, ok := result.AsType.(float32); ok {
+				// Use fuzzy comparison for floating point
+				if math.Abs(float64(val-tt.expectType)) > 0.0001 {
+					t.Errorf("Expected type value %f, got %f", tt.expectType, val)
+				}
+			} else {
+				t.Errorf("Expected AsType to be float32, got %T", result.AsType)
+			}
+
+			if !FuzzyEqual(result.Float64, tt.expectF64) {
+				t.Errorf("Expected float64 value %f, got %f", tt.expectF64, result.Float64)
+			}
+		})
+	}
+}
+func TestDecodeValue_Float64(t *testing.T) {
+	// Helper function to create IEEE-754 float64 bytes
+	createFloat64Bytes := func(f float64) []byte {
+		bits := math.Float64bits(f)
+		bytes := make([]byte, 8)
+		binary.BigEndian.PutUint64(bytes, bits)
+		return bytes
+	}
+
+	tests := []struct {
+		name       string
+		value      []byte
+		dataOrder  string
+		weight     float64
+		expectType float64
+		expectF64  float64
+		expectErr  bool
+	}{
+		{
+			name:       "Float64 positive value 123.456",
+			value:      createFloat64Bytes(123.456),
+			dataOrder:  "ABCDEFGH",
+			weight:     1.0,
+			expectType: 123.456,
+			expectF64:  123.456,
+		},
+		{
+			name:       "Float64 negative value -123.456",
+			value:      createFloat64Bytes(-123.456),
+			dataOrder:  "ABCDEFGH",
+			weight:     1.0,
+			expectType: -123.456,
+			expectF64:  -123.456,
+		},
+		{
+			name: "Float64 big-endian (HGFEDCBA)",
+			value: []byte{
+				createFloat64Bytes(123.456)[7],
+				createFloat64Bytes(123.456)[6],
+				createFloat64Bytes(123.456)[5],
+				createFloat64Bytes(123.456)[4],
+				createFloat64Bytes(123.456)[3],
+				createFloat64Bytes(123.456)[2],
+				createFloat64Bytes(123.456)[1],
+				createFloat64Bytes(123.456)[0],
+			},
+			dataOrder:  "HGFEDCBA",
+			weight:     1.0,
+			expectType: 123.456,
+			expectF64:  123.456,
+		},
+		{
+			name:       "Float64 with weight 2.5",
+			value:      createFloat64Bytes(123.456),
+			dataOrder:  "ABCDEFGH",
+			weight:     2.5,
+			expectType: 123.456,
+			expectF64:  308.64, // 123.456 * 2.5 = 308.64
+		},
+		{
+			name:      "Float64 insufficient bytes",
+			value:     []byte{0x5A, 0xA5, 0xA5, 0x5A, 0x5A, 0xA5, 0xA5},
+			dataOrder: "ABCDEFGH",
+			expectErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reg := DeviceRegister{
+				DataType:  "float64",
+				DataOrder: tt.dataOrder,
+				Weight:    tt.weight,
+				Value:     tt.value,
+			}
+
+			result, err := reg.DecodeValue()
+
+			if tt.expectErr {
+				if err == nil {
+					t.Errorf("Expected error but got none")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("Unexpected error: %v", err)
+				return
+			}
+
+			if val, ok := result.AsType.(float64); ok {
+				if math.Abs(val-tt.expectType) > 0.0001 {
+					t.Errorf("Expected type value %f, got %f", tt.expectType, val)
+				}
+			} else {
+				t.Errorf("Expected AsType to be float64, got %T", result.AsType)
+			}
+
+			if !FuzzyEqual(result.Float64, tt.expectF64) {
+				t.Errorf("Expected float64 value %f, got %f", tt.expectF64, result.Float64)
+			}
 		})
 	}
 }
 
-// go test -benchmem -run=^$ -bench ^Benchmark_Decode_10_TCP_Registers$ github.com/hootrhino/gomodbus -v -count=10000 -benchtime=10s
-func Benchmark_Decode_10_TCP_Registers(b *testing.B) {
-	b.ResetTimer()
+// TestDecodeValue_UInt16 tests decoding of uint16 values
+func TestDecodeValue_UInt16(t *testing.T) {
+	tests := []struct {
+		name       string
+		value      []byte
+		dataOrder  string
+		weight     float64
+		expectType uint16
+		expectF64  float64
+		expectErr  bool
+	}{
+		{
+			name:       "UInt16 value 0x5AA5",
+			value:      []byte{0x5A, 0xA5},
+			dataOrder:  "AB",
+			weight:     1.0,
+			expectType: 0x5AA5,
+			expectF64:  23205.0,
+		},
+		{
+			name:       "UInt16 byte-swapped 0x5AA5",
+			value:      []byte{0x5A, 0xA5},
+			dataOrder:  "BA",
+			weight:     1.0,
+			expectType: 0xA55A,
+			expectF64:  42330.0,
+		},
+		{
+			name:       "UInt16 with weight 2.5",
+			value:      []byte{0x5A, 0xA5},
+			dataOrder:  "AB",
+			weight:     2.5,
+			expectType: 0x5AA5,
+			expectF64:  58012.5, // 23205 * 2.5 = 58012.5
+		},
+		{
+			name:      "UInt16 insufficient bytes",
+			value:     []byte{0x5A},
+			dataOrder: "AB",
+			expectErr: true,
+		},
+	}
 
-	input1 := []DeviceRegister{}
-	{
-		// Func1
-		for i := range 16 {
-			reg1 := DeviceRegister{}
-			reg1.Tag = fmt.Sprintf("Tag-bool-%d-%d", 1, i)
-			reg1.Alias = fmt.Sprintf("Alias-bool-%d-%d", 1, i)
-			reg1.SlaverId = 1
-			reg1.Function = 1
-			reg1.ReadAddress = 0
-			reg1.ReadQuantity = 1
-			reg1.DataType = "bool"
-			reg1.DataOrder = "A"
-			reg1.Frequency = 10
-			reg1.Weight = 1
-			reg1.BitPosition = uint16(i)
-			reg1.Value = [8]byte{0}
-			input1 = append(input1, reg1)
-		}
-	}
-	{
-		// Func2
-		for i := 10; i < 20; i++ {
-			reg1 := DeviceRegister{}
-			reg1.Tag = fmt.Sprintf("Tag-%d-%d", 2, i)
-			reg1.Alias = fmt.Sprintf("Alias-%d-%d", 2, i)
-			reg1.SlaverId = 1
-			reg1.Function = 2
-			reg1.ReadAddress = uint16(i)
-			reg1.ReadQuantity = 1
-			reg1.DataType = "uint16"
-			reg1.DataOrder = "AB"
-			reg1.Frequency = 10
-			reg1.Weight = 1
-			reg1.Value = [8]byte{0}
-			input1 = append(input1, reg1)
-		}
-	}
-	{
-		// Func3
-		for i := 20; i < 30; i++ {
-			reg1 := DeviceRegister{}
-			reg1.Tag = fmt.Sprintf("Tag-%d-%d", 3, i)
-			reg1.Alias = fmt.Sprintf("Alias-%d-%d", 3, i)
-			reg1.SlaverId = 1
-			reg1.Function = 3
-			reg1.ReadAddress = uint16(i)
-			reg1.ReadQuantity = 1
-			reg1.DataType = "uint16"
-			reg1.DataOrder = "AB"
-			reg1.Frequency = 10
-			reg1.Weight = 1
-			reg1.Value = [8]byte{0}
-			input1 = append(input1, reg1)
-		}
-	}
-	{
-		// Func4
-		for i := 30; i < 40; i++ {
-			reg1 := DeviceRegister{}
-			reg1.Tag = fmt.Sprintf("Tag-%d-%d", 4, i)
-			reg1.Alias = fmt.Sprintf("Alias-%d-%d", 4, i)
-			reg1.SlaverId = 1
-			reg1.Function = 4
-			reg1.ReadAddress = uint16(i)
-			reg1.ReadQuantity = 1
-			reg1.DataType = "uint16"
-			reg1.DataOrder = "AB"
-			reg1.Frequency = 10
-			reg1.Weight = 1
-			reg1.Value = [8]byte{0}
-			input1 = append(input1, reg1)
-		}
-	}
-	// Group the registers
-	handler := NewRTUClientHandler("COM17")
-	handler.SlaveId = 1
-	handler.Logger = NewSimpleLogger(os.Stdout, LevelDebug, "TEST")
-
-	err := handler.Connect()
-	if err != nil {
-		b.Fatal(err)
-	}
-	defer handler.Close()
-	client := NewClient(handler)
-	defer client.Close()
-	acc := 1000
-	b.Run("Decode_10_TCP_Registers", func(b *testing.B) {
-		if acc > 1000 {
-			b.StopTimer()
-		}
-		acc--
-		result, errs := client.ReadGroupedRegisterValue(input1)
-		if len(errs) > 0 {
-			for _, err := range errs {
-				b.Logf("Error reading registers: %v", err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reg := DeviceRegister{
+				DataType:  "uint16",
+				DataOrder: tt.dataOrder,
+				Weight:    tt.weight,
+				Value:     tt.value,
 			}
-			b.Fail()
-		}
-		for _, group := range result {
-			for _, reg := range group {
-				b.Log("== ", reg.String())
+
+			result, err := reg.DecodeValue()
+
+			if tt.expectErr {
+				if err == nil {
+					t.Errorf("Expected error but got none")
+				}
+				return
 			}
-		}
 
-	})
+			if err != nil {
+				t.Errorf("Unexpected error: %v", err)
+				return
+			}
 
-}
-func Test_Decode_Print_Registers(t *testing.T) {
-	registers := []DeviceRegister{
-		{SlaverId: 1, ReadAddress: 1, ReadQuantity: 1, Tag: "tag1"},
-		{SlaverId: 1, ReadAddress: 1, ReadQuantity: 1, Tag: "tag1_duplicate"}, // Duplicate
-		{SlaverId: 1, ReadAddress: 2, ReadQuantity: 1, Tag: "tag2"},
-		{SlaverId: 2, ReadAddress: 1, ReadQuantity: 1, Tag: "tag3"},
-		{SlaverId: 2, ReadAddress: 10, ReadQuantity: 1, Tag: "tag4"},
-		{SlaverId: 2, ReadAddress: 10, ReadQuantity: 1, Tag: "tag4_duplicate"}, // Duplicate
-		{SlaverId: 3, ReadAddress: 0, ReadQuantity: 1, Tag: "tag5"},
-		{SlaverId: 3, ReadAddress: 1, ReadQuantity: 1, Tag: "tag6"},
-		{SlaverId: 4, ReadAddress: 1, ReadQuantity: 1, Tag: "bool1"},
-		{SlaverId: 4, ReadAddress: 1, ReadQuantity: 1, Tag: "bool2"},
-		{SlaverId: 4, ReadAddress: 1, ReadQuantity: 1, Tag: "bool3"},
-		{SlaverId: 4, ReadAddress: 1, ReadQuantity: 1, Tag: "bool4"},
-		{SlaverId: 4, ReadAddress: 1, ReadQuantity: 1, Tag: "bool5"},
-		{SlaverId: 4, ReadAddress: 1, ReadQuantity: 1, Tag: "bool6"},
-		{SlaverId: 4, ReadAddress: 1, ReadQuantity: 1, Tag: "bool7"},
-		{SlaverId: 4, ReadAddress: 1, ReadQuantity: 1, Tag: "bool8"},
-		{SlaverId: 4, ReadAddress: 1, ReadQuantity: 1, Tag: "bool9"},
-		{SlaverId: 4, ReadAddress: 1, ReadQuantity: 1, Tag: "bool10"},
-		{SlaverId: 4, ReadAddress: 1, ReadQuantity: 1, Tag: "bool11"},
-		{SlaverId: 4, ReadAddress: 1, ReadQuantity: 1, Tag: "bool12"},
-		{SlaverId: 4, ReadAddress: 1, ReadQuantity: 1, Tag: "bool13"},
-		{SlaverId: 4, ReadAddress: 1, ReadQuantity: 1, Tag: "bool14"},
-		{SlaverId: 4, ReadAddress: 1, ReadQuantity: 1, Tag: "bool15"},
+			if val, ok := result.AsType.(uint16); ok {
+				if val != tt.expectType {
+					t.Errorf("Expected type value %d, got %d", tt.expectType, val)
+				}
+			} else {
+				t.Errorf("Expected AsType to be uint16, got %T", result.AsType)
+			}
+
+			if !FuzzyEqual(result.Float64, tt.expectF64) {
+				t.Errorf("Expected float64 value %f, got %f", tt.expectF64, result.Float64)
+			}
+		})
 	}
-
-	groups := GroupDeviceRegisterWithUniqueAddress(registers)
-	PrintGroups(groups)
 }
 
-// Simple function to print groups for debugging/demonstration
-func PrintGroups(groups [][]DeviceRegister) {
-	for i, group := range groups {
-		if len(group) == 0 {
-			continue
+// TestDecodeValue_Int16 tests decoding of int16 values
+func TestDecodeValue_Int16(t *testing.T) {
+	tests := []struct {
+		name       string
+		value      []byte
+		dataOrder  string
+		weight     float64
+		expectType int16
+		expectF64  float64
+		expectErr  bool
+	}{
+		{
+			name:       "Int16 positive value 0x5AA5",
+			value:      []byte{0x5A, 0xA5},
+			dataOrder:  "AB",
+			weight:     1.0,
+			expectType: 0x5AA5,
+			expectF64:  23205.0,
+		},
+		{
+			name:       "Int16 negative value 0x8000",
+			value:      []byte{0x80, 0x00},
+			dataOrder:  "AB",
+			weight:     1.0,
+			expectType: -32768,
+			expectF64:  -32768.0,
+		},
+		{
+			name:       "Int16 byte-swapped negative",
+			value:      []byte{0x00, 0x80},
+			dataOrder:  "BA",
+			weight:     1.0,
+			expectType: -32768,
+			expectF64:  -32768.0,
+		},
+		{
+			name:       "Int16 with weight 2.5",
+			value:      []byte{0x5A, 0xA5},
+			dataOrder:  "AB",
+			weight:     2.5,
+			expectType: 0x5AA5,
+			expectF64:  58012.5, // 23205 * 2.5 = 58012.5
+		},
+		{
+			name:      "Int16 insufficient bytes",
+			value:     []byte{0x5A},
+			dataOrder: "AB",
+			expectErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reg := DeviceRegister{
+				DataType:  "int16",
+				DataOrder: tt.dataOrder,
+				Weight:    tt.weight,
+				Value:     tt.value,
+			}
+
+			result, err := reg.DecodeValue()
+
+			if tt.expectErr {
+				if err == nil {
+					t.Errorf("Expected error but got none")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("Unexpected error: %v", err)
+				return
+			}
+
+			if val, ok := result.AsType.(int16); ok {
+				if val != tt.expectType {
+					t.Errorf("Expected type value %d, got %d", tt.expectType, val)
+				}
+			} else {
+				t.Errorf("Expected AsType to be int16, got %T", result.AsType)
+			}
+
+			if !FuzzyEqual(result.Float64, tt.expectF64) {
+				t.Errorf("Expected float64 value %f, got %f", tt.expectF64, result.Float64)
+			}
+		})
+	}
+}
+
+// TestDecodeValue_UInt32 tests decoding of uint32 values
+func TestDecodeValue_UInt32(t *testing.T) {
+	tests := []struct {
+		name       string
+		value      []byte
+		dataOrder  string
+		weight     float64
+		expectType uint32
+		expectF64  float64
+		expectErr  bool
+	}{
+		{
+			name:       "UInt32 positive value 0x5AA5A55A",
+			value:      []byte{0x5A, 0xA5, 0xA5, 0x5A},
+			dataOrder:  "ABCD",
+			weight:     1.0,
+			expectType: 0x5AA5A55A,
+			expectF64:  1520805210.0,
+		},
+		{
+			name:       "UInt32 negative value 0x80000000",
+			value:      []byte{0x80, 0x00, 0x00, 0x00},
+			dataOrder:  "ABCD",
+			weight:     1.0,
+			expectType: 0x80000000,
+			expectF64:  2147483648.0,
+		},
+		{
+			name:       "UInt32 byte-swapped 0x5AA5A55A",
+			value:      []byte{0x5A, 0xA5, 0xA5, 0x5A},
+			dataOrder:  "DCBA",
+			weight:     1.0,
+			expectType: 0x5AA5A55A,
+			expectF64:  1520805210.0,
+		},
+		{
+			name:       "UInt32 with weight 2.5",
+			value:      []byte{0x5A, 0xA5, 0xA5, 0x5A},
+			dataOrder:  "ABCD",
+			weight:     2.5,
+			expectType: 0x5AA5A55A,
+			expectF64:  3802013025.0, // 1520805210 * 2.5 = 3802013025.0
+		},
+		{
+			name:      "UInt32 insufficient bytes",
+			value:     []byte{0x5A, 0xA5, 0xA5},
+			dataOrder: "ABCD",
+			expectErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reg := DeviceRegister{
+				DataType:  "uint32",
+				DataOrder: tt.dataOrder,
+				Weight:    tt.weight,
+				Value:     tt.value,
+			}
+
+			result, err := reg.DecodeValue()
+
+			if tt.expectErr {
+				if err == nil {
+					t.Errorf("Expected error but got none")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("Unexpected error: %v", err)
+				return
+			}
+
+			if val, ok := result.AsType.(uint32); ok {
+				if val != tt.expectType {
+					t.Errorf("Expected type value %d, got %d", tt.expectType, val)
+				}
+			} else {
+				t.Errorf("Expected AsType to be uint32, got %T", result.AsType)
+			}
+
+			if !FuzzyEqual(result.Float64, tt.expectF64) {
+				t.Errorf("Expected float64 value %f, got %f", tt.expectF64, result.Float64)
+			}
+		})
+	}
+}
+
+// TestCheckBit verifies bit checking functionality
+func TestCheckBit(t *testing.T) {
+	// Test value 0x5A (01011010)
+	value := uint16(0x5A)
+
+	// Expected bit values for 0x5A
+	expected := []bool{false, true, false, true, true, false, true, false}
+
+	for i := 0; i < 8; i++ {
+		result := CheckBit(value, uint16(i))
+		if result != expected[i] {
+			t.Errorf("CheckBit(0x5A, %d) = %v, want %v", i, result, expected[i])
 		}
-		fmt.Printf("Group %d (SlaveId=%d):\n", i+1, group[0].SlaverId)
-		fmt.Printf("  Registers: ")
-		for _, reg := range group {
-			fmt.Printf("(Addr=%d Qty=%d Tag=%s) ", reg.ReadAddress, reg.ReadQuantity, reg.Tag)
+	}
+
+	// Test out of range index
+	if CheckBit(value, 16) {
+		t.Errorf("CheckBit(0x5A, 16) = true, want false (out of range)")
+	}
+
+	// Test all 16 bits with alternating pattern
+	value = 0xAAAA // 1010 1010 1010 1010
+	for i := 0; i < 16; i++ {
+		expected := i%2 == 1 // Odd indices should be true
+		result := CheckBit(value, uint16(i))
+		if result != expected {
+			t.Errorf("CheckBit(0xAAAA, %d) = %v, want %v", i, result, expected)
 		}
-		fmt.Printf("\n")
+	}
+}
+
+// TestDecodeValue_Bitfield tests decoding of bitfield values
+func TestDecodeValue_Bitfield(t *testing.T) {
+	// Test cases for bitfield
+	tests := []struct {
+		name       string
+		value      []byte
+		bitMask    uint16
+		dataOrder  string
+		weight     float64
+		expectType uint16
+		expectF64  float64
+		expectErr  bool
+	}{
+		{
+			name:       "Bitfield value 0x5AA5",
+			value:      []byte{0x5A, 0xA5},
+			bitMask:    0xFFFF,
+			dataOrder:  "AB",
+			weight:     1.0,
+			expectType: 0x5AA5,
+			expectF64:  23205.0,
+		},
+		{
+			name:       "Bitfield value with weight 2.5",
+			value:      []byte{0x5A, 0xA5},
+			bitMask:    0xFFFF,
+			dataOrder:  "AB",
+			weight:     2.5,
+			expectType: 0x5AA5,
+			expectF64:  58012.5, // 23205 * 2.5 = 58012.5
+		},
+		{
+			name:      "Bitfield insufficient bytes",
+			value:     []byte{0x5A},
+			bitMask:   0xFFFF,
+			dataOrder: "AB",
+			expectErr: true,
+		},
+		{
+			name:       "Bitfield with bitmask 0x00FF",
+			value:      []byte{0x5A, 0xA5},
+			bitMask:    0x00FF,
+			dataOrder:  "AB",
+			weight:     1.0,
+			expectType: 0x00A5,
+			expectF64:  165.0,
+		},
+		{
+			name:       "Bitfield with bitmask 0xFF00",
+			value:      []byte{0x5A, 0xA5},
+			bitMask:    0xFF00,
+			dataOrder:  "AB",
+			weight:     1.0,
+			expectType: 0x5A00,
+			expectF64:  23040.0,
+		},
+		{
+			name:       "Bitfield with bitmask 0x0000",
+			value:      []byte{0x5A, 0xA5},
+			bitMask:    0x0000,
+			dataOrder:  "AB",
+			weight:     1.0,
+			expectType: 0x0000,
+			expectF64:  0.0,
+		},
+		{
+			name:       "Bitfield with bitmask 0xFFFF",
+			value:      []byte{0x5A, 0xA5},
+			bitMask:    0xFFFF,
+			dataOrder:  "AB",
+			weight:     1.0,
+			expectType: 0x5AA5,
+			expectF64:  23205.0,
+		},
+		{
+			name:       "Bitfield with bitmask 0x7FFF",
+			value:      []byte{0x5A, 0xA5},
+			bitMask:    0x7FFF,
+			dataOrder:  "AB",
+			weight:     1.0,
+			expectType: 0x5AA5,
+			expectF64:  23205.0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reg := DeviceRegister{
+				DataType:  "bitfield",
+				DataOrder: tt.dataOrder,
+				Weight:    tt.weight,
+				Value:     tt.value,
+				BitMask:   tt.bitMask,
+			}
+
+			result, err := reg.DecodeValue()
+
+			if tt.expectErr {
+				if err == nil {
+					t.Errorf("Expected error but got none")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("Unexpected error: %v", err)
+				return
+			}
+
+			if val, ok := result.AsType.(uint16); ok {
+				if val != tt.expectType {
+					t.Errorf("Expected type value %d, got %d", tt.expectType, val)
+				}
+			} else {
+				t.Errorf("Expected AsType to be uint16, got %T", result.AsType)
+			}
+
+			if !FuzzyEqual(result.Float64, tt.expectF64) {
+				t.Errorf("Expected float64 value %f, got %f", tt.expectF64, result.Float64)
+			}
+		})
+	}
+}
+
+// TestDecodeValue_Bool tests decoding of boolean values
+func TestDecodeValue_Bool(t *testing.T) {
+	// Test cases for boolean
+	tests := []struct {
+		name        string
+		value       []byte
+		bitPosition uint16
+		dataOrder   string
+		expectType  bool
+		expectF64   float64
+		expectErr   bool
+	}{
+		{
+			name:        "Bool bit 0 set",
+			value:       []byte{0x01, 0x00},
+			bitPosition: 8,
+			dataOrder:   "AB",
+			expectType:  true,
+			expectF64:   1.0,
+		},
+		{
+			name:        "Bool bit 0 clear",
+			value:       []byte{0x02, 0x00},
+			bitPosition: 0,
+			dataOrder:   "AB",
+			expectType:  false,
+			expectF64:   0.0,
+		},
+		{
+			name:        "Bool bit 7 set",
+			value:       []byte{0x80, 0x00},
+			bitPosition: 7,
+			dataOrder:   "BA",
+			expectType:  true,
+			expectF64:   1.0,
+		},
+		{
+			name:        "Bool bit 15 set",
+			value:       []byte{0xFF, 0x00},
+			bitPosition: 15,
+			dataOrder:   "AB",
+			expectType:  true,
+			expectF64:   1.0,
+		},
+		{
+			name:        "Bool big-endian with bit 7",
+			value:       []byte{0x00, 0b_10000000},
+			bitPosition: 7,
+			dataOrder:   "AB",
+			expectType:  true,
+			expectF64:   1.0,
+		},
+		{
+			name:        "Bool insufficient bytes",
+			value:       []byte{0x01},
+			bitPosition: 0,
+			dataOrder:   "AB",
+			expectErr:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reg := DeviceRegister{
+				DataType:    "bool",
+				DataOrder:   tt.dataOrder,
+				BitPosition: tt.bitPosition,
+				Value:       tt.value,
+			}
+
+			result, err := reg.DecodeValue()
+
+			if tt.expectErr {
+				if err == nil {
+					t.Errorf("Expected error but got none")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("Unexpected error: %v", err)
+				return
+			}
+
+			if val, ok := result.AsType.(bool); ok {
+				if val != tt.expectType {
+					t.Errorf("Expected type value %v, got %v", tt.expectType, val)
+				}
+			} else {
+				t.Errorf("Expected AsType to be bool, got %T", result.AsType)
+			}
+
+			if !FuzzyEqual(result.Float64, tt.expectF64) {
+				t.Errorf("Expected float64 value %f, got %f", tt.expectF64, result.Float64)
+			}
+		})
+	}
+}
+
+// TestDecodeValue_Byte tests decoding of byte values
+func TestDecodeValue_Byte(t *testing.T) {
+	tests := []struct {
+		name       string
+		value      []byte
+		dataOrder  string
+		weight     float64
+		expectType byte
+		expectF64  float64
+		expectErr  bool
+	}{
+		{
+			name:       "Byte value 0x5A",
+			value:      []byte{0x5A},
+			dataOrder:  "A",
+			weight:     1.0,
+			expectType: 0x5A,
+			expectF64:  90.0,
+		},
+		{
+			name:       "Byte value with weight 2.5",
+			value:      []byte{0x5A},
+			dataOrder:  "A",
+			weight:     2.5,
+			expectType: 0x5A,
+			expectF64:  90.0, // 90 * 2.5 = 225
+		},
+		{
+			name:       "Byte with multiple bytes (takes first)",
+			value:      []byte{0x5A, 0xA5},
+			dataOrder:  "A",
+			weight:     1.0,
+			expectType: 0x5A,
+			expectF64:  90.0,
+		},
+		{
+			name:      "Byte empty value",
+			value:     []byte{},
+			dataOrder: "A",
+			expectErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reg := DeviceRegister{
+				DataType:  "byte",
+				DataOrder: tt.dataOrder,
+				Weight:    tt.weight,
+				Value:     tt.value,
+			}
+
+			result, err := reg.DecodeValue()
+
+			if tt.expectErr {
+				if err == nil {
+					t.Errorf("Expected error but got none")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("Unexpected error: %v", err)
+				return
+			}
+
+			if val, ok := result.AsType.(byte); ok {
+				if val != tt.expectType {
+					t.Errorf("Expected type value %d, got %d", tt.expectType, val)
+				}
+			} else {
+				t.Errorf("Expected AsType to be byte, got %T", result.AsType)
+			}
+
+			if !FuzzyEqual(result.Float64, tt.expectF64) {
+				t.Errorf("Expected float64 value %f, got %f", tt.expectF64, result.Float64)
+			}
+		})
+	}
+}
+
+// TestDecodeValue_UInt8 tests decoding of uint8 values
+func TestDecodeValue_UInt8(t *testing.T) {
+	tests := []struct {
+		name       string
+		value      []byte
+		dataOrder  string
+		weight     float64
+		expectType uint8
+		expectF64  float64
+		expectErr  bool
+	}{
+		{
+			name:       "UInt8 value 0x5A",
+			value:      []byte{0x5A},
+			dataOrder:  "A",
+			weight:     1.0,
+			expectType: 0x5A,
+			expectF64:  90.0,
+		},
+		{
+			name:       "UInt8 value with weight 2.5",
+			value:      []byte{0x5A},
+			dataOrder:  "A",
+			weight:     2.5,
+			expectType: 0x5A,
+			expectF64:  225.0, // 90 * 2.5 = 225
+		},
+		{
+			name:       "UInt8 with multiple bytes (takes first)",
+			value:      []byte{0x5A, 0xA5},
+			dataOrder:  "A",
+			weight:     1.0,
+			expectType: 0x5A,
+			expectF64:  90.0,
+		},
+		{
+			name:      "UInt8 empty value",
+			value:     []byte{},
+			dataOrder: "A",
+			expectErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reg := DeviceRegister{
+				DataType:  "uint8",
+				DataOrder: tt.dataOrder,
+				Weight:    tt.weight,
+				Value:     tt.value,
+			}
+
+			result, err := reg.DecodeValue()
+
+			if tt.expectErr {
+				if err == nil {
+					t.Errorf("Expected error but got none")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("Unexpected error: %v", err)
+				return
+			}
+
+			if val, ok := result.AsType.(uint8); ok {
+				if val != tt.expectType {
+					t.Errorf("Expected type value %d, got %d", tt.expectType, val)
+				}
+			} else {
+				t.Errorf("Expected AsType to be uint8, got %T", result.AsType)
+			}
+
+			if !FuzzyEqual(result.Float64, tt.expectF64) {
+				t.Errorf("Expected float64 value %f, got %f", tt.expectF64, result.Float64)
+			}
+		})
+	}
+}
+
+// TestDecodeValue_Int8 tests decoding of int8 values
+func TestDecodeValue_Int8(t *testing.T) {
+	tests := []struct {
+		name       string
+		value      []byte
+		dataOrder  string
+		weight     float64
+		expectType int8
+		expectF64  float64
+		expectErr  bool
+	}{
+		{
+			name:       "Int8 positive value 0x5A",
+			value:      []byte{0x5A},
+			dataOrder:  "A",
+			weight:     1.0,
+			expectType: 0x5A,
+			expectF64:  90.0,
+		},
+		{
+			name:       "Int8 negative value 0x80",
+			value:      []byte{0x80},
+			dataOrder:  "A",
+			weight:     1.0,
+			expectType: -128,
+			expectF64:  -128.0,
+		},
+		{
+			name:       "Int8 with weight 2.5",
+			value:      []byte{0x5A},
+			dataOrder:  "A",
+			weight:     2.5,
+			expectType: 0x5A,
+			expectF64:  225.0, // 90 * 2.5 = 225
+		},
+		{
+			name:      "Int8 empty value",
+			value:     []byte{},
+			dataOrder: "A",
+			expectErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reg := DeviceRegister{
+				DataType:  "int8",
+				DataOrder: tt.dataOrder,
+				Weight:    tt.weight,
+				Value:     tt.value,
+			}
+
+			result, err := reg.DecodeValue()
+
+			if tt.expectErr {
+				if err == nil {
+					t.Errorf("Expected error but got none")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("Unexpected error: %v", err)
+				return
+			}
+
+			if val, ok := result.AsType.(int8); ok {
+				if val != tt.expectType {
+					t.Errorf("Expected type value %d, got %d", tt.expectType, val)
+				}
+			} else {
+				t.Errorf("Expected AsType to be int8, got %T", result.AsType)
+			}
+
+			if !FuzzyEqual(result.Float64, tt.expectF64) {
+				t.Errorf("Expected float64 value %f, got %f", tt.expectF64, result.Float64)
+			}
+		})
 	}
 }

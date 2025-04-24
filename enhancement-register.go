@@ -3,7 +3,6 @@ package modbus
 import (
 	"encoding/binary"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"math"
 	"unsafe"
@@ -17,14 +16,130 @@ type DeviceRegister struct {
 	Function     uint8   `json:"function"`     // Modbus function code (e.g., 3 for Read Holding Registers)
 	ReadAddress  uint16  `json:"readAddress"`  // Address of the register in the Modbus device
 	ReadQuantity uint16  `json:"readQuantity"` // Number of registers to read/write
-	DataType     string  `json:"dataType"`     // Data type of the register value (e.g., uint16, int32, float32)
+	DataType     string  `json:"dataType"`     // Data type of the register value (e.g., uint16, int32, float32, string)
 	DataOrder    string  `json:"dataOrder"`    // Byte order for multi-byte values (e.g., ABCD, DCBA)
-	BitPosition  uint16  `json:"bitPosition"`  // bit position for bit-level operations (e.g., 0, 1, 2)
+	BitPosition  uint16  `json:"bitPosition"`  // Bit position for bit-level operations (e.g., 0, 1, 2)
 	BitMask      uint16  `json:"bitMask"`      // Bitmask for bit-level operations (e.g., 0x01, 0x02)
 	Weight       float64 `json:"weight"`       // Scaling factor for the register value
 	Frequency    uint64  `json:"frequency"`    // Polling frequency in milliseconds
-	Value        [8]byte `json:"value"`        // Raw value of the register as a byte array
+	Value        []byte  `json:"value"`        // Raw value of the register as a byte array (variable length)
 	Status       string  `json:"status"`       // Status of the register (e.g., "OK", "Error")
+}
+
+// DecodeValue converts the raw bytes in the register to a typed value based on the DataType
+func (r DeviceRegister) DecodeValue() (DecodedValue, error) {
+	// Check if we have enough bytes for the data type
+	requiredBytes, err := getRequiredBytes(r.DataType)
+	if err != nil {
+		return DecodedValue{Raw: r.Value}, err
+	}
+
+	if len(r.Value) < requiredBytes && r.DataType != "string" {
+		return DecodedValue{Raw: r.Value}, fmt.Errorf("not enough bytes for data type %s: have %d, need %d",
+			r.DataType, len(r.Value), requiredBytes)
+	}
+
+	// Apply byte reordering
+	bytes := reorderBytes(r.Value, r.DataOrder)
+	res := DecodedValue{Raw: bytes}
+
+	switch r.DataType {
+	case "bitfield":
+		if len(bytes) < 2 {
+			return res, fmt.Errorf("not enough bytes for bitfield: need at least 2")
+		}
+		uint16Val := binary.BigEndian.Uint16(bytes[:2])
+		uint16Val = uint16Val & r.BitMask
+		res.AsType = uint16Val
+		res.Float64 = float64(uint16Val) * r.Weight
+	case "bool":
+		if len(bytes) < 2 {
+			return res, fmt.Errorf("not enough bytes for bool: need at least 2")
+		}
+		uint16Val := binary.BigEndian.Uint16(bytes[:2])
+		res.AsType = CheckBit(uint16Val, r.BitPosition)
+		if res.AsType.(bool) {
+			res.Float64 = 1.0
+		} else {
+			res.Float64 = 0.0
+		}
+	case "byte":
+		res.AsType = bytes[0]
+		res.Float64 = float64(bytes[0])
+	case "uint8":
+		res.AsType = uint8(bytes[0])
+		res.Float64 = float64(res.AsType.(uint8)) * r.Weight
+	case "int8":
+		res.AsType = int8(bytes[0])
+		res.Float64 = float64(res.AsType.(int8)) * r.Weight
+	case "uint16":
+		if len(bytes) < 2 {
+			return res, fmt.Errorf("not enough bytes for uint16: need at least 2")
+		}
+		res.AsType = binary.BigEndian.Uint16(bytes[:2])
+		res.Float64 = float64(res.AsType.(uint16)) * r.Weight
+	case "int16":
+		if len(bytes) < 2 {
+			return res, fmt.Errorf("not enough bytes for int16: need at least 2")
+		}
+		res.AsType = int16(binary.BigEndian.Uint16(bytes[:2]))
+		res.Float64 = float64(res.AsType.(int16)) * r.Weight
+	case "uint32":
+		if len(bytes) < 4 {
+			return res, fmt.Errorf("not enough bytes for uint32: need at least 4")
+		}
+		res.AsType = binary.BigEndian.Uint32(bytes[:4])
+		res.Float64 = float64(res.AsType.(uint32)) * r.Weight
+	case "int32":
+		if len(bytes) < 4 {
+			return res, fmt.Errorf("not enough bytes for int32: need at least 4")
+		}
+		res.AsType = int32(binary.BigEndian.Uint32(bytes[:4]))
+		res.Float64 = float64(res.AsType.(int32)) * r.Weight
+	case "float32":
+		if len(bytes) < 4 {
+			return res, fmt.Errorf("not enough bytes for float32: need at least 4")
+		}
+		bits := binary.BigEndian.Uint32(bytes[:4])
+		v := float32FromBits(bits)
+		res.AsType = v
+		res.Float64 = float64(v) * r.Weight
+	case "float64":
+		if len(bytes) < 8 {
+			return res, fmt.Errorf("not enough bytes for float64: need at least 8")
+		}
+		bits := binary.BigEndian.Uint64(bytes[:8])
+		v := float64FromBits(bits)
+		res.AsType = v
+		res.Float64 = v * r.Weight
+	case "string":
+		// Parse the entire byte slice as a string
+		res.AsType = string(bytes)
+		res.Float64 = 0 // Not applicable for strings
+	default:
+		return res, fmt.Errorf("unsupported data type: %s", r.DataType)
+	}
+
+	return res, nil
+}
+
+// getRequiredBytes returns the number of bytes required for a given data type
+func getRequiredBytes(dataType string) (int, error) {
+	switch dataType {
+	case "bitfield", "bool", "uint16", "int16":
+		return 2, nil
+	case "uint32", "int32", "float32":
+		return 4, nil
+	case "uint64", "float64":
+		return 8, nil
+	case "byte", "uint8", "int8":
+		return 1, nil
+	case "string":
+		// String type can have variable length
+		return 0, nil
+	default:
+		return 0, fmt.Errorf("unknown data type: %s", dataType)
+	}
 }
 
 // Encode Bytes
@@ -34,7 +149,13 @@ func (r DeviceRegister) Encode() []byte {
 
 // Decode Bytes
 func (r *DeviceRegister) Decode(data []byte) {
-	copy(r.Value[:], data)
+	// Make sure r.Value has enough capacity
+	if r.Value == nil || cap(r.Value) < len(data) {
+		r.Value = make([]byte, len(data))
+	} else {
+		r.Value = r.Value[:len(data)]
+	}
+	copy(r.Value, data)
 }
 
 // To string
@@ -46,98 +167,68 @@ func (r DeviceRegister) String() string {
 	return string(jsonData)
 }
 
+// CheckBit checks if a specific bit is set in a uint16 value
 func CheckBit(num uint16, index uint16) bool {
-	if index < 0 || index > 15 {
+	if index > 15 { // uint16 has 16 bits (0-15)
 		return false
 	}
 	mask := uint16(1) << index
 	return (num & mask) != 0
 }
 
-// DecodeValueAsInterface returns the decoded result as multiple forms
-func (r DeviceRegister) DecodeValue() (DecodedValue, error) {
-	bytes := reorderBytes(r.Value, r.DataOrder)
-	res := DecodedValue{Raw: bytes}
+// reorderBytes reorders the bytes according to the specified byte order
+func reorderBytes(data []byte, order string) []byte {
+	length := len(data)
 
-	switch r.DataType {
-	case "bitfield":
-		Uint16 := binary.BigEndian.Uint16(bytes[:2])
-		Uint16 = Uint16 & r.BitMask
-		res.AsType = Uint16
-		res.Float64 = float64(Uint16) * r.Weight
-	case "bool":
-		Uint16 := binary.BigEndian.Uint16(bytes[:2])
-		res.AsType = CheckBit(Uint16, r.BitPosition)
-		res.Float64 = 0
-		if res.AsType.(bool) {
-			res.Float64 = 1
-		}
-	case "byte":
-		v := bytes[0]
-		res.AsType = v
-		res.Float64 = float64(v)
-	case "uint8":
-		v := uint8(bytes[0])
-		res.AsType = v
-		res.Float64 = float64(v) * r.Weight
-	case "int8":
-		v := int8(bytes[0])
-		res.AsType = v
-		res.Float64 = float64(v) * r.Weight
-	case "uint16":
-		v := binary.BigEndian.Uint16(bytes[:2])
-		res.AsType = v
-		res.Float64 = float64(v) * r.Weight
-	case "int16":
-		v := int16(binary.BigEndian.Uint16(bytes[:2]))
-		res.AsType = v
-		res.Float64 = float64(v) * r.Weight
-	case "uint32":
-		v := binary.BigEndian.Uint32(bytes[:4])
-		res.AsType = v
-		res.Float64 = float64(v) * r.Weight
-	case "int32":
-		v := int32(binary.BigEndian.Uint32(bytes[:4]))
-		res.AsType = v
-		res.Float64 = float64(v) * r.Weight
-	case "float32":
-		bits := binary.BigEndian.Uint32(bytes[:4])
-		v := float32FromBits(bits)
-		res.AsType = v
-		res.Float64 = float64(v) * r.Weight
-	case "float64":
-		// Ensure we have enough bytes for float64
-		bits := binary.BigEndian.Uint64(bytes[:8])
-		v := float64FromBits(bits)
-		res.AsType = v
-		res.Float64 = float64(v) * r.Weight
-	default:
-		return res, errors.New("unsupported data type:" + r.DataType)
-	}
-
-	return res, nil
-}
-
-// reorderBytes reorders bytes according to DataOrder
-func reorderBytes(data [8]byte, order string) []byte {
 	switch order {
 	case "A":
-		return data[:1]
+		if length >= 1 {
+			return data[:1]
+		}
 	case "AB":
-		return data[:2]
+		if length >= 2 {
+			return data[:2]
+		}
 	case "BA":
-		return []byte{data[1], data[0]}
+		if length >= 2 {
+			return []byte{data[1], data[0]}
+		}
 	case "ABCD":
-		return data[:]
+		if length >= 4 {
+			return data[:4]
+		}
 	case "DCBA":
-		return []byte{data[3], data[2], data[1], data[0]}
+		if length >= 4 {
+			return []byte{data[3], data[2], data[1], data[0]}
+		}
 	case "BADC":
-		return []byte{data[1], data[0], data[3], data[2]}
+		if length >= 4 {
+			return []byte{data[1], data[0], data[3], data[2]}
+		}
 	case "CDAB":
-		return []byte{data[2], data[3], data[0], data[1]}
-	default:
-		return data[:]
+		if length >= 4 {
+			return []byte{data[2], data[3], data[0], data[1]}
+		}
+	case "ABCDEFGH":
+		if length >= 8 {
+			return data[:8]
+		}
+	case "HGFEDCBA":
+		if length >= 8 {
+			return []byte{data[7], data[6], data[5], data[4], data[3], data[2], data[1], data[0]}
+		}
+	case "BADCFEHG":
+		if length >= 8 {
+			return []byte{data[1], data[0], data[3], data[2], data[5], data[4], data[7], data[6]}
+		}
+	case "GHEFCDAB":
+		if length >= 8 {
+			return []byte{data[6], data[7], data[4], data[5], data[2], data[3], data[0], data[1]}
+		}
 	}
+
+	// Default to returning the original data
+	return data
 }
 
 // DecodedValue holds all possible interpretations of a raw Modbus value
@@ -147,6 +238,7 @@ type DecodedValue struct {
 	AsType  any     `json:"asType"`  // Value as any type
 }
 
+// GetFloat64Value returns the Float64 value, optionally rounded to the specified number of decimal places
 func (dv DecodedValue) GetFloat64Value(round int) float64 {
 	if round > 0 {
 		return math.Round(dv.Float64*math.Pow(10, float64(round))) / math.Pow(10, float64(round))
@@ -159,9 +251,12 @@ func (dv DecodedValue) String() string {
 	return fmt.Sprintf("Raw: %v, Float64: %f, AsType: %v", dv.Raw, dv.Float64, dv.AsType)
 }
 
+// float32FromBits converts a uint32 to a float32
 func float32FromBits(bits uint32) float32 {
 	return *(*float32)(unsafe.Pointer(&bits))
 }
+
+// float64FromBits converts a uint64 to a float64
 func float64FromBits(bits uint64) float64 {
 	return *(*float64)(unsafe.Pointer(&bits))
 }

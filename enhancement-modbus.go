@@ -146,50 +146,57 @@ func GroupDeviceRegisterWithUniqueAddress(registers []DeviceRegister) [][]Device
 	return result
 }
 
-// ReadGroup reads a group of registers from the Modbus server
 func readGroup(client Client, group []DeviceRegister) ([]DeviceRegister, error) {
-	client.SetSlaveId(group[0].SlaverId)
-	start := group[0].ReadAddress
-	var totalQuantity uint16
-	for _, reg := range group {
-		totalQuantity += reg.ReadQuantity
-	}
-	var data []byte
-	var err error
-	switch group[0].Function {
-	case 1:
-		data, err = client.ReadCoils(start, totalQuantity)
-	case 2:
-		data, err = client.ReadDiscreteInputs(start, totalQuantity)
-	case 3:
-		data, err = client.ReadHoldingRegisters(start, totalQuantity)
-	case 4:
-		data, err = client.ReadInputRegisters(start, totalQuantity)
-	default:
-		return nil, fmt.Errorf("unsupported Modbus function code: %d", group[0].Function)
-	}
-	if err != nil {
-		for i := range group {
-			group[i].Status = fmt.Sprintf("INVALID:%s", err)
-		}
-		return group, err
-	}
-	offset := 0
-	for i := range group {
-		expectedLength := int(group[i].ReadQuantity * 2)
-		if offset+expectedLength > len(data) {
-			msg := fmt.Sprintf("Error: Data out of bounds for register %d (SlaverId=%d, ReadAddress=%d, offset=%d, expected=%d, dataLength=%d)",
-				i, group[i].SlaverId, group[i].ReadAddress, offset, expectedLength, len(data))
-			group[i].Status = msg
-			break
-		}
-		copy(group[i].Value[:group[i].ReadQuantity*2], data[offset:offset+int(group[i].ReadQuantity*2)])
-		group[i].Status = "VALID:OK"
-		offset += expectedLength
-	}
-	return group, nil
-}
+    client.SetSlaveId(group[0].SlaverId)
+    start := group[0].ReadAddress
+    var totalQuantity uint16
+    for _, reg := range group {
+        totalQuantity += reg.ReadQuantity
+    }
+    var data []byte
+    var err error
+    switch group[0].Function {
+    case 1:
+        data, err = client.ReadCoils(start, totalQuantity)
+    case 2:
+        data, err = client.ReadDiscreteInputs(start, totalQuantity)
+    case 3:
+        data, err = client.ReadHoldingRegisters(start, totalQuantity)
+    case 4:
+        data, err = client.ReadInputRegisters(start, totalQuantity)
+    default:
+        return nil, fmt.Errorf("unsupported Modbus function code: %d", group[0].Function)
+    }
+    if err != nil {
+        for i := range group {
+            group[i].Status = fmt.Sprintf("INVALID:%s", err)
+        }
+        return group, err
+    }
+    offset := 0
+    for i := range group {
+        expectedLength := int(group[i].ReadQuantity * 2)
+        if offset+expectedLength > len(data) {
+            msg := fmt.Sprintf("Error: Data out of bounds for register %d (SlaverId=%d, ReadAddress=%d, offset=%d, expected=%d, dataLength=%d)",
+                i, group[i].SlaverId, group[i].ReadAddress, offset, expectedLength, len(data))
+            group[i].Status = msg
+            break
+        }
 
+        // Ensure the Value slice has enough capacity
+        if cap(group[i].Value) < expectedLength {
+            group[i].Value = make([]byte, expectedLength)
+        } else {
+            group[i].Value = group[i].Value[:expectedLength]
+        }
+
+        // Copy data safely
+        copy(group[i].Value, data[offset:offset+expectedLength])
+        group[i].Status = "VALID:OK"
+        offset += expectedLength
+    }
+    return group, nil
+}
 // Read data from modbus server concurrently
 func ReadGroupedDataConcurrently(client Client, grouped [][]DeviceRegister) ([][]DeviceRegister, []error) {
 	var wg sync.WaitGroup
