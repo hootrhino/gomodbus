@@ -46,6 +46,8 @@ type Client interface {
 	//ReadFIFOQueue reads the contents of a First-In-First-Out (FIFO) queue
 	// of register in a remote device and returns FIFO value register.
 	ReadFIFOQueue(address uint16) (results []byte, err error)
+	// ReadWithCustomFunction reads a custom function code from the device.
+	ReadWithCustomFunction(code byte, address, quantity uint16) (results []byte, err error)
 	// ReadDeviceIdentification reads all the Basic and Regular identification strings
 	// from the device. If firstExtendedID is >= 0x80, it will also read the Extended strings,
 	// starting from the specified one.

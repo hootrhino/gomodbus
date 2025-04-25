@@ -13,7 +13,7 @@ func MakeNewTestUartClient() Client {
 	handler.DataBits = 8
 	handler.Parity = "N"
 	handler.StopBits = 1
-	handler.SlaveId = 1
+	handler.SetSlaverId(1)
 	handler.Logger = NewSimpleLogger(os.Stdout, LevelDebug, "TEST")
 	err := handler.Connect()
 	if err != nil {

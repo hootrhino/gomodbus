@@ -32,7 +32,7 @@ func TestTCPEncoding(t *testing.T) {
 func TestTCPDecoding(t *testing.T) {
 	packager := tcpPackager{}
 	packager.transactionId = 1
-	packager.SlaveId = 17
+	packager.slaveId = 17
 	adu := []byte{0, 1, 0, 0, 0, 6, 17, 3, 0, 120, 0, 3}
 
 	pdu, err := packager.Decode(adu)
@@ -90,7 +90,7 @@ func TestTCPTransporter(t *testing.T) {
 
 func BenchmarkTCPEncoder(b *testing.B) {
 	encoder := tcpPackager{
-		SlaveId: 10,
+		slaveId: 10,
 	}
 	pdu := ProtocolDataUnit{
 		FunctionCode: 1,
@@ -106,7 +106,7 @@ func BenchmarkTCPEncoder(b *testing.B) {
 
 func BenchmarkTCPDecoder(b *testing.B) {
 	decoder := tcpPackager{
-		SlaveId: 10,
+		slaveId: 10,
 	}
 	adu := []byte{0, 1, 0, 0, 0, 6, 17, 3, 0, 120, 0, 3}
 	for i := 0; i < b.N; i++ {

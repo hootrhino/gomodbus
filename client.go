@@ -509,6 +509,49 @@ func (mb *client) ReadFIFOQueue(address uint16) (results []byte, err error) {
 	return
 }
 
+// Request:
+//
+//	Function code         : 1 byte (custom)
+//	Starting address      : 2 bytes
+//	Quantity of registers : 2 bytes
+//
+// Response:
+//
+//	Function code         : 1 byte (custom)
+//	Byte count            : 1 byte
+//	Register value        : Nx2 bytes
+func (mb *client) ReadWithCustomFunction(code byte, address, quantity uint16) (results []byte, err error) {
+	// Validate input
+	if quantity < 1 || quantity > 125 {
+		err = fmt.Errorf("modbus: quantity '%v' must be between '%v' and '%v'", quantity, 1, 125)
+		return
+	}
+
+	// Create the request
+	request := ProtocolDataUnit{
+		FunctionCode: code,
+		Data:         dataBlock(address, quantity),
+	}
+
+	// Send the request and receive the response
+	response, err := mb.send(&request)
+	if err != nil {
+		return
+	}
+
+	// Validate the response
+	count := int(response.Data[0])
+	length := len(response.Data) - 1
+	if count != length {
+		err = fmt.Errorf("modbus: response data size '%v' does not match count '%v'", length, count)
+		return
+	}
+
+	// Extract the results
+	results = response.Data[1:]
+	return
+}
+
 // Helpers
 
 // send sends request and checks possible exception in the response.

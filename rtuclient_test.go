@@ -13,8 +13,7 @@ import (
 
 func TestRTUEncoding(t *testing.T) {
 	encoder := rtuPackager{}
-	encoder.SlaveId = 0x01
-
+	encoder.SetSlaverId(0x01)
 	pdu := ProtocolDataUnit{}
 	pdu.FunctionCode = 0x03
 	pdu.Data = []byte{0x50, 0x00, 0x00, 0x18}
@@ -71,9 +70,9 @@ func TestCalculateResponseLength(t *testing.T) {
 }
 
 func BenchmarkRTUEncoder(b *testing.B) {
-	encoder := rtuPackager{
-		SlaveId: 10,
-	}
+	encoder := rtuPackager{}
+	encoder.SetSlaverId(0x01)
+
 	pdu := ProtocolDataUnit{
 		FunctionCode: 1,
 		Data:         []byte{2, 3, 4, 5, 6, 7, 8, 9},
@@ -87,9 +86,9 @@ func BenchmarkRTUEncoder(b *testing.B) {
 }
 
 func BenchmarkRTUDecoder(b *testing.B) {
-	decoder := rtuPackager{
-		SlaveId: 10,
-	}
+	decoder := rtuPackager{}
+	decoder.SetSlaverId(0x01)
+
 	adu := []byte{0x01, 0x10, 0x8A, 0x00, 0x00, 0x03, 0xAA, 0x10}
 	for i := 0; i < b.N; i++ {
 		_, err := decoder.Decode(adu)
@@ -105,7 +104,7 @@ func Test_RTU_ClientHandler(t *testing.T) {
 	handler.DataBits = 8
 	handler.Parity = "N"
 	handler.StopBits = 1
-	handler.SlaveId = 1
+	handler.SetSlaverId(1)
 	handler.Logger = NewSimpleLogger(os.Stdout, LevelDebug, "TEST")
 
 	err := handler.Connect()
@@ -119,7 +118,7 @@ func Test_RTU_ClientHandler(t *testing.T) {
 }
 func Test_TCP_ClientHandler(t *testing.T) {
 	handler := NewTCPClientHandler("127.0.0.1:502")
-	handler.SlaveId = 1
+	handler.SetSlaverId(1)
 	handler.Logger = NewSimpleLogger(os.Stdout, LevelDebug, "TEST")
 
 	err := handler.Connect()

@@ -44,12 +44,12 @@ func (mb *asciiPackager) Type() string {
 	return "ASCII"
 }
 func (mb *asciiPackager) SetSlaverId(slaveId byte) {
-	mb.SlaveId = slaveId
+	mb.slaveId = slaveId
 }
 
 // asciiPackager implements Packager interface.
 type asciiPackager struct {
-	SlaveId byte
+	slaveId byte
 }
 
 // Encode encodes PDU in a ASCII frame:
@@ -66,7 +66,7 @@ func (mb *asciiPackager) Encode(pdu *ProtocolDataUnit) (adu []byte, err error) {
 	if _, err = buf.WriteString(asciiStart); err != nil {
 		return
 	}
-	if err = writeHex(&buf, []byte{mb.SlaveId, pdu.FunctionCode}); err != nil {
+	if err = writeHex(&buf, []byte{mb.slaveId, pdu.FunctionCode}); err != nil {
 		return
 	}
 	if err = writeHex(&buf, pdu.Data); err != nil {
@@ -75,7 +75,7 @@ func (mb *asciiPackager) Encode(pdu *ProtocolDataUnit) (adu []byte, err error) {
 	// Exclude the beginning colon and terminating CRLF pair characters
 	var lrc lrc
 	lrc.reset()
-	lrc.pushByte(mb.SlaveId).pushByte(pdu.FunctionCode).pushBytes(pdu.Data)
+	lrc.pushByte(mb.slaveId).pushByte(pdu.FunctionCode).pushBytes(pdu.Data)
 	if err = writeHex(&buf, []byte{lrc.value()}); err != nil {
 		return
 	}

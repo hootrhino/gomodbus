@@ -42,12 +42,12 @@ func (mb *rtuPackager) Type() string {
 	return "RTU"
 }
 func (mb *rtuPackager) SetSlaverId(slaveId byte) {
-	mb.SlaveId = slaveId
+	mb.slaveId = slaveId
 }
 
 // rtuPackager implements Packager interface.
 type rtuPackager struct {
-	SlaveId byte
+	slaveId byte
 }
 
 // Encode encodes PDU in a RTU frame:
@@ -64,7 +64,7 @@ func (mb *rtuPackager) Encode(pdu *ProtocolDataUnit) (adu []byte, err error) {
 	}
 	adu = make([]byte, length)
 
-	adu[0] = mb.SlaveId
+	adu[0] = mb.slaveId
 	adu[1] = pdu.FunctionCode
 	copy(adu[2:], pdu.Data)
 
