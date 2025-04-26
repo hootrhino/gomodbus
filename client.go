@@ -634,26 +634,25 @@ func responseError(response *ProtocolDataUnit) error {
 //	  Object length		  : 1
 //		 Object value		  : <Object length> bytes
 func (mb *client) ReadDeviceIdentification(firstExtendedID byte) (results map[byte]string, err error) {
-	readDevIDCode := byte(0x01)
-	objectID := byte(0x00)
-	conformityLevel := byte(0x00)
+	readDevIDCode := byte(0x01)   // Start with the basic identification code
+	objectID := byte(0x00)        // Start with the first object ID
+	conformityLevel := byte(0x00) // Initial conformity level
 
-	objects := make(map[byte]string)
 	results = make(map[byte]string)
-
+	var resultObjects map[byte]string
 	// Getting basic objects (mandatory)
 	for {
-		conformityLevel, objectID, objects, err =
-			mb.sendReadDeviceIdentification(readDevIDCode, objectID)
+		conformityLevel, objectID, resultObjects, err = mb.sendReadDeviceIdentification(readDevIDCode, objectID)
 		if err != nil {
 			return results, err
 		}
 
-		for k, v := range objects {
+		// Merge the objects into results directly
+		for k, v := range resultObjects {
 			results[k] = v
 		}
 
-		if len(results) >= 3 {
+		if len(results) >= 3 { // We expect at least 3 mandatory objects
 			break
 		} else {
 			if objectID == 0x00 {
@@ -663,12 +662,12 @@ func (mb *client) ReadDeviceIdentification(firstExtendedID byte) (results map[by
 		}
 	}
 
-	// Getting regular and extended objects, if supported and requested by the user
+	// Get additional objects based on conformity level
 	for {
-		if (readDevIDCode == 0x01) && (conformityLevel&0x02) >= 0x02 {
+		if conformityLevel&0x02 >= 0x02 { // If the device supports additional (regular) objects
 			readDevIDCode = 0x02
 			objectID = 0x00
-		} else if (readDevIDCode == 0x02) && (conformityLevel&0x03) == 0x03 && firstExtendedID >= 0x80 {
+		} else if conformityLevel&0x03 == 0x03 && firstExtendedID >= 0x80 { // If the device supports extended objects
 			readDevIDCode = 0x03
 			objectID = firstExtendedID
 		} else {
@@ -676,13 +675,13 @@ func (mb *client) ReadDeviceIdentification(firstExtendedID byte) (results map[by
 		}
 
 		for {
-			_, objectID, objects, err =
-				mb.sendReadDeviceIdentification(readDevIDCode, objectID)
+			_, objectID, resultObjects, err := mb.sendReadDeviceIdentification(readDevIDCode, objectID)
 			if err != nil {
 				return results, err
 			}
 
-			for k, v := range objects {
+			// Merge the objects into results directly
+			for k, v := range resultObjects {
 				results[k] = v
 			}
 
@@ -692,14 +691,14 @@ func (mb *client) ReadDeviceIdentification(firstExtendedID byte) (results map[by
 		}
 	}
 
-	return
+	return results, nil
 }
 
-// sendReadDeviceIdentification sends a FC43/14 request and returns the reponse after some basic checks
+// sendReadDeviceIdentification sends a FC43/14 request and returns the response after some basic checks
 func (mb *client) sendReadDeviceIdentification(readDeviceIDCode byte, objectID byte) (
-	conformityLevel byte, nextObjID byte, objects map[byte]string, err error) {
+	conformityLevel byte, nextObjID byte, resultObjects map[byte]string, err error) {
 
-	objects = make(map[byte]string)
+	resultObjects = make(map[byte]string)
 
 	reqData := make([]byte, 3)
 	reqData[0] = MEITypeReadDeviceIdentification
@@ -719,7 +718,7 @@ func (mb *client) sendReadDeviceIdentification(readDeviceIDCode byte, objectID b
 	conformityLevel = response.Data[2]
 	if !((conformityLevel >= 0x01 && conformityLevel <= 0x03) ||
 		(conformityLevel >= 0x81 && conformityLevel <= 0x83)) {
-		err = fmt.Errorf("modbus: response conformitiy level '%v' is not valid", conformityLevel)
+		err = fmt.Errorf("modbus: response conformity level '%v' is not valid", conformityLevel)
 		return
 	}
 
@@ -735,7 +734,7 @@ func (mb *client) sendReadDeviceIdentification(readDeviceIDCode byte, objectID b
 		length := int(response.Data[index+1])
 		value := response.Data[index+2 : index+2+length]
 
-		objects[id] = string(value)
+		resultObjects[id] = string(value)
 		index += 2 + length
 	}
 

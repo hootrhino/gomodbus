@@ -1,6 +1,6 @@
 module github.com/hootrhino/gomodbus
 
-go 1.24.2
+go 1.22
 
 require github.com/hootrhino/goserial v0.2.2
 

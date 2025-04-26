@@ -43,6 +43,14 @@ const (
 	ExceptionCodeGatewayTargetDeviceFailedToRespond = 11
 )
 
+// Modbus TCP Protocol Identifier
+const ProtocolIdentifierTCP uint16 = 0x0000
+
+// Modbus Function Codes
+const (
+	FuncCodeReadExceptionStatus uint8 = 0x07
+)
+
 // ModbusError implements error interface.
 type ModbusError struct {
 	FunctionCode  byte

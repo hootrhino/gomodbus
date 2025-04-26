@@ -60,7 +60,7 @@ func Test_RegisterManager_Decode_bool(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			t.Log(fmt.Sprintf("tag:%s, value:%v", register.Tag, value.AsType))
+			t.Logf("tag:%s, value:%v", register.Tag, value.AsType)
 		}
 	})
 	if errLoad := manager.LoadRegisters(registers); errLoad != nil {
@@ -110,7 +110,7 @@ func Test_RegisterManager_Decode_uint16(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			t.Log(fmt.Sprintf("tag:%s, value:%v", register.Tag, value.AsType))
+			t.Logf("tag:%s, value:%v", register.Tag, value.AsType)
 		}
 	})
 	if errLoad := manager.LoadRegisters(registers); errLoad != nil {
@@ -160,7 +160,7 @@ func Test_RegisterManager_Decode_uint32(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			t.Log(fmt.Sprintf("tag:%s, value:%v", register.Tag, value.AsType))
+			t.Logf("tag:%s, value:%v", register.Tag, value.AsType)
 		}
 	})
 	if errLoad := manager.LoadRegisters(registers); errLoad != nil {
@@ -209,7 +209,7 @@ func Test_RegisterManager_Decode_float32(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			t.Log(fmt.Sprintf("tag:%s, value:%v", register.Tag, value.AsType))
+			t.Logf("tag:%s, value:%v", register.Tag, value.AsType)
 		}
 	})
 	if errLoad := manager.LoadRegisters(registers); errLoad != nil {
