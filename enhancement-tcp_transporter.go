@@ -28,17 +28,17 @@ func NewTCPTransporter(conn net.Conn, timeout time.Duration, logger io.Writer) *
 
 // Send sends a Modbus TCP PDU over the connection.
 func (t *TCPTransporter) Send(transactionID uint16, unitID uint8, pdu []byte) error {
-	frame, err := t.packager.Pack(transactionID, unitID, pdu)
-	if err != nil {
-		return err
+	frame, errPack := t.packager.Pack(transactionID, unitID, pdu)
+	if errPack != nil {
+		return errPack
 	}
 
 	if err := t.conn.SetDeadline(time.Now().Add(t.timeout)); err != nil {
 		return err
 	}
 
-	_, err = t.conn.Write(frame)
-	return err
+	_, errWrite := t.conn.Write(frame)
+	return errWrite
 }
 
 // Receive receives a Modbus TCP response from the connection.

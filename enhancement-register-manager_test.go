@@ -3,6 +3,7 @@ package modbus
 import (
 	"fmt"
 	"os"
+	"sync"
 	"testing"
 	"time"
 )
@@ -32,6 +33,60 @@ func MakeNewTestTcpClient() Client {
 	}
 	client := NewClient(handler)
 	return client
+}
+func Test_RegisterManager_Decode_bool_concurrent(t *testing.T) {
+	const numThreads = 5
+	var wg sync.WaitGroup
+	client := MakeNewTestUartClient()
+	defer client.Close()
+
+	for i := 0; i < numThreads; i++ {
+		manager := NewRegisterManager(client, 10)
+		wg.Add(1)
+		go func(threadID int) {
+			defer wg.Done()
+
+			registers := []DeviceRegister{}
+			for j := 0; j < 16; j++ {
+				registers = append(registers, DeviceRegister{
+					Tag:          fmt.Sprintf("tag:bool:%d:%d", threadID, j),
+					Alias:        fmt.Sprintf("tag:bool:%d:%d", threadID, j),
+					SlaverId:     uint8(j),
+					Function:     3,
+					ReadAddress:  1,
+					ReadQuantity: 1,
+					DataType:     "bool", // ABFF = 10101011 11111111
+					BitPosition:  uint16(j),
+				})
+			}
+			manager.SetOnErrorCallback(func(err error) {
+				t.Logf("Thread %d error: %v", threadID, err)
+			})
+			manager.SetOnReadCallback(func(registers []DeviceRegister) {
+				for _, register := range registers {
+					value, err := register.DecodeValue()
+					if err != nil {
+						t.Logf("Thread %d decode error: %v", threadID, err)
+						return
+					}
+					t.Logf("Thread %d - tag:%s, value:%v", threadID, register.Tag, value.AsType)
+				}
+			})
+			if errLoad := manager.LoadRegisters(registers); errLoad != nil {
+				t.Logf("Thread %d load registers error: %v", threadID, errLoad)
+				return
+			}
+
+			manager.Start()
+			for range 1 {
+				manager.ReadGroupedData()
+			}
+			time.Sleep(1 * time.Second)
+			manager.Stop()
+		}(i)
+	}
+
+	wg.Wait()
 }
 func Test_RegisterManager_Decode_bool(t *testing.T) {
 	client := MakeNewTestUartClient()

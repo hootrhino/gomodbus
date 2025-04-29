@@ -675,7 +675,7 @@ func (mb *client) ReadDeviceIdentification(firstExtendedID byte) (results map[by
 		}
 
 		for {
-			_, objectID, resultObjects, err := mb.sendReadDeviceIdentification(readDevIDCode, objectID)
+			_, _, resultObjects, err := mb.sendReadDeviceIdentification(readDevIDCode, objectID)
 			if err != nil {
 				return results, err
 			}

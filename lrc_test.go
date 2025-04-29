@@ -9,11 +9,11 @@ import (
 )
 
 func TestLRC(t *testing.T) {
-	var lrc lrc
-	lrc.reset().pushByte(0x01).pushByte(0x03)
-	lrc.pushBytes([]byte{0x01, 0x0A})
+	var lrc1 lrc
+	lrc1.reset().pushByte(0x01).pushByte(0x03)
+	lrc1.pushBytes([]byte{0x01, 0x0A})
 
-	if lrc.value() != 0xF1 {
-		t.Fatalf("lrc expected %v, actual %v", 0xF1, lrc.value())
+	if lrc1.value() != 0xF1 {
+		t.Fatalf("lrc expected %v, actual %v", 0xF1, lrc1.value())
 	}
 }

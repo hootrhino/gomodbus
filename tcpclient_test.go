@@ -50,9 +50,9 @@ func TestTCPDecoding(t *testing.T) {
 }
 
 func TestTCPTransporter(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
+	ln, errListen := net.Listen("tcp", "127.0.0.1:0")
+	if errListen != nil {
+		t.Fatal(errListen)
 	}
 	defer ln.Close()
 

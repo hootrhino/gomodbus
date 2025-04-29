@@ -91,6 +91,8 @@ func (m *RegisterManager) LoadRegisters(registers []DeviceRegister) error {
 
 // Stop gracefully stops the manager
 func (m *RegisterManager) Stop() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	close(m.exitSignal)
 	close(m.dataQueue)
 }
@@ -113,7 +115,10 @@ func (m *RegisterManager) ReadGroupedData() []error {
 	for _, group := range result {
 		select {
 		case m.dataQueue <- group:
-		case <-m.exitSignal:
+		case _, ok := <-m.exitSignal:
+			if !ok {
+				return nil
+			}
 			return nil
 		}
 	}
