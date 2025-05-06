@@ -5,9 +5,19 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"os"
 	"time"
 )
+
+// DefaultLogger is a simple logger that implements the io.Writer interface.
+type DefaultLogger struct {
+}
+
+// Write implements the io.Writer interface for DefaultLogger.
+func (l *DefaultLogger) Write(p []byte) (n int, err error) {
+	timeStr := time.Now().Format("2006-01-02 15:04:05")
+	fmt.Printf("[%s] %s\n", timeStr, string(p))
+	return len(p), nil
+}
 
 // Standard Response PDU Lengths (Including Function Code, Excluding Slave ID and CRC)
 const (
@@ -19,7 +29,7 @@ const (
 	// RespPDULenReadDeviceIdentity is dynamic
 )
 
-// ModbusHandler implements the ModbusApi interface for RTU communication.
+// ModbusHandler implements the ModbusApi interface for handling Modbus requests.
 type ModbusHandler struct {
 	logger         io.Writer       // Logger for debug output
 	rtuTransporter *RTUTransporter // New field for RTU transporter
@@ -28,18 +38,23 @@ type ModbusHandler struct {
 	mode           string          // "rtu" or "tcp"
 }
 
+// GetType implements ModbusApi.
+func (h *ModbusHandler) GetType() string {
+	return h.mode
+}
+
 // NewModbusHandler creates a new ModbusHandler with the given serial port and timeout.
 // It returns an instance implementing the ModbusApi interface.
 func NewModbusRTUHandler(port io.ReadWriteCloser, timeout time.Duration) ModbusApi {
 	return &ModbusHandler{
-		logger:         os.Stdout,
+		logger:         &DefaultLogger{},
 		mode:           "rtu",
 		rtuTransporter: NewRTUTransporter(port, timeout),
 	}
 }
 func NewModbusTCPHandler(conn net.Conn, timeout time.Duration) ModbusApi {
 	return &ModbusHandler{
-		logger:         os.Stdout,
+		logger:         &DefaultLogger{},
 		mode:           "tcp",
 		tcpTransporter: NewTCPTransporter(conn, timeout, nil),
 	}
@@ -65,7 +80,7 @@ func (h *ModbusHandler) readModbusData(funcCode uint8, slaveID uint16, startAddr
 	if err != nil {
 		// Log the error if logger is available
 		if h.logger != nil {
-			fmt.Fprintf(h.logger, "modbus: Error building request PDU for func %02X (slave %d): %v\n", funcCode, slaveID, err)
+			fmt.Fprintf(h.logger, "modbus: Error building request PDU for func %02X (slave %d): %v", funcCode, slaveID, err)
 		}
 		return nil, fmt.Errorf("modbus: failed to build request PDU for func %02X (slave %d): %w", funcCode, slaveID, err)
 	}
@@ -115,7 +130,7 @@ func (h *ModbusHandler) writeModbusData(funcCode uint8, slaveID uint16, pduData 
 	reqPDU, err := buildRequestPDU(funcCode, pduData) // Assumes buildRequestPDU exists
 	if err != nil {
 		if h.logger != nil {
-			fmt.Fprintf(h.logger, "modbus: Error building request PDU for func %02X (slave %d): %v\n", funcCode, slaveID, err)
+			fmt.Fprintf(h.logger, "modbus: Error building request PDU for func %02X (slave %d): %v", funcCode, slaveID, err)
 		}
 		return nil, fmt.Errorf("modbus: failed to build request PDU for func %02X (slave %d): %w", funcCode, slaveID, err)
 	}
@@ -166,7 +181,7 @@ func (h *ModbusHandler) ReadCoils(slaveID uint16, startAddress, quantity uint16)
 			// This case indicates more quantity requested than bits received.
 			// Depending on strictness, could return error or just stop parsing.
 			// Stopping is safer if quantity is somehow inconsistent.
-			// if h.logger != nil { fmt.Fprintf(h.logger, "modbus: Warning: Quantity %d exceeds received data bits for coils (slave %d, address %d)\n", quantity, slaveID, startAddress) }
+			// if h.logger != nil { fmt.Fprintf(h.logger, "modbus: Warning: Quantity %d exceeds received data bits for coils (slave %d, address %d)", quantity, slaveID, startAddress) }
 			break // Stop processing if we run out of data
 		}
 	}
@@ -194,7 +209,7 @@ func (h *ModbusHandler) ReadDiscreteInputs(slaveID uint16, startAddress, quantit
 				inputs[i] = true
 			}
 		} else {
-			// if h.logger != nil { fmt.Fprintf(h.logger, "modbus: Warning: Quantity %d exceeds received data bits for discrete inputs (slave %d, address %d)\n", quantity, slaveID, startAddress) }
+			// if h.logger != nil { fmt.Fprintf(h.logger, "modbus: Warning: Quantity %d exceeds received data bits for discrete inputs (slave %d, address %d)", quantity, slaveID, startAddress) }
 			break // Stop processing if we run out of data
 		}
 	}
@@ -434,7 +449,7 @@ func (h *ModbusHandler) ReadCustomData(funcCode uint16, slaveID uint16, startAdd
 	reqPDU, err := buildRequestPDU(uint8(funcCode), pduData) // Assumes buildRequestPDU exists
 	if err != nil {
 		if h.logger != nil {
-			fmt.Fprintf(h.logger, "modbus: Error building request PDU for custom func %02X (slave %d): %v\n", funcCode, slaveID, err)
+			fmt.Fprintf(h.logger, "modbus: Error building request PDU for custom func %02X (slave %d): %v", funcCode, slaveID, err)
 		}
 		return nil, fmt.Errorf("modbus: failed to build request PDU for custom func %02X (slave %d): %w", funcCode, slaveID, err)
 	}
@@ -480,7 +495,7 @@ func (h *ModbusHandler) WriteCustomData(funcCode uint16, slaveID uint16, startAd
 	reqPDU, err := buildRequestPDU(uint8(funcCode), pduData) // Assumes buildRequestPDU exists
 	if err != nil {
 		if h.logger != nil {
-			fmt.Fprintf(h.logger, "modbus: Error building request PDU for custom write func %02X (slave %d): %v\n", funcCode, slaveID, err)
+			fmt.Fprintf(h.logger, "modbus: Error building request PDU for custom write func %02X (slave %d): %v", funcCode, slaveID, err)
 		}
 		return fmt.Errorf("modbus: failed to build request PDU for custom write func %02X (slave %d): %w", funcCode, slaveID, err)
 	}
@@ -501,7 +516,7 @@ func (h *ModbusHandler) WriteCustomData(funcCode uint16, slaveID uint16, startAd
 	if len(respPDU) != 1 {
 		// Log the actual response bytes for debugging custom functions
 		if h.logger != nil {
-			fmt.Fprintf(h.logger, "modbus: Warning: Unexpected response length for custom write func %02X (slave %d): expected 1 byte, got %d. Response: % X\n", funcCode, slaveID, len(respPDU), respPDU)
+			fmt.Fprintf(h.logger, "modbus: Warning: Unexpected response length for custom write func %02X (slave %d): expected 1 byte, got %d. Response: % X", funcCode, slaveID, len(respPDU), respPDU)
 		}
 		return fmt.Errorf("modbus: unexpected response length for custom write func %02X (slave %d): expected 1 byte, got %d", funcCode, slaveID, len(respPDU))
 	}
@@ -517,7 +532,7 @@ func (h *ModbusHandler) ReadDeviceIdentity(slaveID uint16) (uint16, error) {
 	reqPDU, err := buildRequestPDU(FuncCodeReadDeviceIdentity, nil) // Assumes buildRequestPDU handles nil payload
 	if err != nil {
 		if h.logger != nil {
-			fmt.Fprintf(h.logger, "modbus: Error building request PDU for func %02X (slave %d): %v\n", FuncCodeReadDeviceIdentity, slaveID, err)
+			fmt.Fprintf(h.logger, "modbus: Error building request PDU for func %02X (slave %d): %v", FuncCodeReadDeviceIdentity, slaveID, err)
 		}
 		return 0, fmt.Errorf("modbus: failed to build request PDU for func %02X (slave %d): %w", FuncCodeReadDeviceIdentity, slaveID, err)
 	}
@@ -562,7 +577,7 @@ func (h *ModbusHandler) ReadExceptionStatus(slaveID uint16) (string, error) {
 	reqPDU, err := buildRequestPDU(FuncCodeReadExceptionStatus, nil) // Assumes buildRequestPDU handles nil payload
 	if err != nil {
 		if h.logger != nil {
-			fmt.Fprintf(h.logger, "modbus: Error building request PDU for func %02X (slave %d): %v\n", FuncCodeReadExceptionStatus, slaveID, err)
+			fmt.Fprintf(h.logger, "modbus: Error building request PDU for func %02X (slave %d): %v", FuncCodeReadExceptionStatus, slaveID, err)
 		}
 		return "", fmt.Errorf("modbus: failed to build request PDU for func %02X (slave %d): %w", FuncCodeReadExceptionStatus, slaveID, err)
 	}
@@ -590,12 +605,6 @@ func (h *ModbusHandler) ReadExceptionStatus(slaveID uint16) (string, error) {
 	return fmt.Sprintf("Exception Status: 0x%02X", statusByte), nil
 }
 
-// sendAndReceive sends a PDU and receives the response over the RTU transporter.
-// It handles basic response checks like slave ID mismatch and Modbus exception responses.
-// It logs the communication details if a logger is provided.
-// Assumes the transporter handles adding Slave ID and CRC for sending,
-// and handles removing Slave ID and CRC, and validating CRC for receiving.
-// It returns the received PDU (excluding Slave ID and CRC).
 func (h *ModbusHandler) sendAndReceive(slaveID uint8, reqPDU []byte) ([]byte, error) {
 	// Log the request details (optional)
 	if h.logger != nil {
@@ -609,7 +618,13 @@ func (h *ModbusHandler) sendAndReceive(slaveID uint8, reqPDU []byte) ([]byte, er
 		if len(reqPDU) > 0 {
 			pduDataLog = reqPDU[1:]
 		}
-		fmt.Fprintf(h.logger, "modbus: Sending RTU request to slave %d, func %02X, PDU data: % X\n", slaveID, funcCode, pduDataLog)
+		if h.mode == "tcp" {
+			RemoteAddr := h.tcpTransporter.conn.RemoteAddr().String()
+			fmt.Fprintf(h.logger, "modbus tcp: Sending request to slave %d, func %02X, PDU data: % X, RemoteAddr: %s", slaveID, funcCode, pduDataLog, RemoteAddr)
+		}
+		if h.mode == "rtu" {
+			fmt.Fprintf(h.logger, "modbus rtu: Sending request to slave %d, func %02X, PDU data: % X", slaveID, funcCode, pduDataLog)
+		}
 	}
 
 	// Send the request PDU
@@ -622,7 +637,13 @@ func (h *ModbusHandler) sendAndReceive(slaveID uint8, reqPDU []byte) ([]byte, er
 	if err != nil {
 		// Log and wrap the transport error
 		if h.logger != nil {
-			fmt.Fprintf(h.logger, "modbus: Error sending RTU request to slave %d: %v\n", slaveID, err)
+			if h.mode == "tcp" {
+				RemoteAddr := h.tcpTransporter.conn.RemoteAddr().String()
+				fmt.Fprintf(h.logger, "modbus tcp: Error sending request to slave %d: %v, RemoteAddr: %s", slaveID, err, RemoteAddr)
+			}
+			if h.mode == "rtu" {
+				fmt.Fprintf(h.logger, "modbus rtu: Error sending request to slave %d: %v", slaveID, err)
+			}
 		}
 		return nil, fmt.Errorf("modbus: rtu transport send failed (slave %d): %w", slaveID, err)
 	}
@@ -638,19 +659,31 @@ func (h *ModbusHandler) sendAndReceive(slaveID uint8, reqPDU []byte) ([]byte, er
 	if err != nil {
 		// Log and wrap the transport error
 		if h.logger != nil {
-			fmt.Fprintf(h.logger, "modbus: Error receiving RTU response from slave %d: %v\n", slaveID, err)
+			if h.mode == "tcp" {
+				RemoteAddr := h.tcpTransporter.conn.RemoteAddr().String()
+				fmt.Fprintf(h.logger, "modbus tcp: Error receiving response from slave %d: %v, RemoteAddr: %s", slaveID, err, RemoteAddr)
+			}
+			if h.mode == "rtu" {
+				fmt.Fprintf(h.logger, "modbus rtu: Error receiving response from slave %d: %v", slaveID, err)
+			}
 		}
 		return nil, fmt.Errorf("modbus: rtu transport receive failed (slave %d): %w", slaveID, err)
 	}
 	// Log the received response details (optional)
 	if h.logger != nil {
-		fmt.Fprintf(h.logger, "modbus: Received RTU response from slave %d, PDU: % X\n", respSlaveID, respPDU)
+		fmt.Fprintf(h.logger, "modbus: Received response from slave %d, PDU: % X", respSlaveID, respPDU)
 	}
 	// Validate the received slave ID
 	if respSlaveID != slaveID {
 		err = fmt.Errorf("modbus: response slave ID mismatch: expected %d, got %d", slaveID, respSlaveID)
 		if h.logger != nil {
-			fmt.Fprintln(h.logger, err)
+			if h.mode == "tcp" {
+				RemoteAddr := h.tcpTransporter.conn.RemoteAddr().String()
+				fmt.Fprintf(h.logger, "modbus tcp: Error response slave ID mismatch (slave %d): %v, RemoteAddr: %s", slaveID, err, RemoteAddr)
+			}
+			if h.mode == "rtu" {
+				fmt.Fprintf(h.logger, "modbus rtu: Error response slave ID mismatch (slave %d): %v", slaveID, err)
+			}
 		}
 		return nil, err
 	}
@@ -662,7 +695,13 @@ func (h *ModbusHandler) sendAndReceive(slaveID uint8, reqPDU []byte) ([]byte, er
 		exceptionMsg := getExceptionMessage(exceptionCode) // Assumes getExceptionMessage exists
 		err = fmt.Errorf("modbus: received exception response (slave %d): code 0x%02X - %s", slaveID, exceptionCode, exceptionMsg)
 		if h.logger != nil {
-			fmt.Fprintln(h.logger, err)
+			if h.mode == "tcp" {
+				RemoteAddr := h.tcpTransporter.conn.RemoteAddr().String()
+				fmt.Fprintf(h.logger, "modbus tcp: Error received exception response (slave %d): %v, RemoteAddr: %s", slaveID, err, RemoteAddr)
+			}
+			if h.mode == "rtu" {
+				fmt.Fprintf(h.logger, "modbus rtu: Error received exception response (slave %d): %v", slaveID, err)
+			}
 		}
 		return nil, err
 	}

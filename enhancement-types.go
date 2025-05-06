@@ -7,6 +7,7 @@ import (
 // ModbusApi defines the interface for Modbus client operations.
 type ModbusApi interface {
 	// Handler API
+	GetType() string     // GetType returns the type of the handler
 	SetLogger(io.Writer) // SetLogger sets the logger for the client
 	// basic methods
 	ReadCoils(slaveID uint16, startAddress, quantity uint16) ([]bool, error)              // ReadCoils reads multiple coils
