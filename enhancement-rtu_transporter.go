@@ -9,19 +9,17 @@ import (
 
 // RTUTransporter handles Modbus RTU communication over a serial port.
 type RTUTransporter struct {
-	logger   io.Writer
 	timeout  time.Duration
 	packager *RTUPackager
 	port     io.ReadWriteCloser
 }
 
 // NewRTUTransporter creates a new RTUTransporter with the given serial port and timeout.
-func NewRTUTransporter(port io.ReadWriteCloser, timeout time.Duration, logger io.Writer) *RTUTransporter {
+func NewRTUTransporter(port io.ReadWriteCloser, timeout time.Duration) *RTUTransporter {
 	return &RTUTransporter{
 		port:     port,
 		timeout:  timeout,
 		packager: NewRTUPackager(),
-		logger:   logger,
 	}
 }
 
@@ -31,7 +29,6 @@ func (t *RTUTransporter) Send(slaveID uint8, pdu []byte) error {
 	if err != nil {
 		return err
 	}
-	t.logger.Write(fmt.Appendf(nil, "RTUTransporter Sending frame: %v\n", formatPrintHEX(frame)))
 	_, err = t.port.Write(frame)
 	return err
 }

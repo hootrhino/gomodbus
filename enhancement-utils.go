@@ -1,10 +1,5 @@
 package modbus
 
-import (
-	"fmt"
-	"strings"
-)
-
 // buildRequestPDU constructs a Modbus request PDU.
 // It takes the function code and the data payload as input.
 func buildRequestPDU(functionCode uint8, data []byte) ([]byte, error) {
@@ -55,73 +50,4 @@ func CRC16(data []byte) uint16 {
 		}
 	}
 	return ((crc & 0xFF) << 8) | ((crc >> 8) & 0xFF)
-}
-
-// formatHEX formats a byte slice into a pretty-printed hex dump with aligned byte indices.
-// Each line contains 8 bytes.
-func formatPrintHEX(data []byte) string {
-	if len(data) == 0 {
-		return ""
-	}
-
-	var builder strings.Builder
-	for i, b := range data {
-		if i > 0 {
-			builder.WriteByte(' ')
-		}
-		fmt.Fprintf(&builder, "%02X[%02d]", b, i)
-	}
-	return builder.String()
-}
-
-// Helper function to convert byte order.
-// convertByteOrder converts byte order based on the specified byte order string.
-func convertByteOrder(data []byte, byteOrder string) []byte {
-	switch byteOrder {
-	case "A":
-		if len(data) >= 1 {
-			return data[:1]
-		}
-	case "AB":
-		if len(data) >= 2 {
-			return data[:2]
-		}
-	case "BA":
-		if len(data) >= 2 {
-			return []byte{data[1], data[0]}
-		}
-	case "ABCD":
-		if len(data) >= 4 {
-			return data[:4]
-		}
-	case "DCBA":
-		if len(data) >= 4 {
-			return []byte{data[3], data[2], data[1], data[0]}
-		}
-	case "BADC":
-		if len(data) >= 4 {
-			return []byte{data[1], data[0], data[3], data[2]}
-		}
-	case "CDAB":
-		if len(data) >= 4 {
-			return []byte{data[2], data[3], data[0], data[1]}
-		}
-	case "ABCDEFGH":
-		if len(data) >= 8 {
-			return data[:8]
-		}
-	case "HGFEDCBA":
-		if len(data) >= 8 {
-			return []byte{data[7], data[6], data[5], data[4], data[3], data[2], data[1], data[0]}
-		}
-	case "BADCFEHG":
-		if len(data) >= 8 {
-			return []byte{data[1], data[0], data[3], data[2], data[5], data[4], data[7], data[6]}
-		}
-	case "GHEFCDAB":
-		if len(data) >= 8 {
-			return []byte{data[6], data[7], data[4], data[5], data[2], data[3], data[0], data[1]}
-		}
-	}
-	return data
 }

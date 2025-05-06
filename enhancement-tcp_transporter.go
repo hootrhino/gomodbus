@@ -13,7 +13,6 @@ type TCPTransporter struct {
 	conn     net.Conn
 	timeout  time.Duration
 	packager *TCPPackager
-	logger   io.Writer
 }
 
 // NewTCPTransporter creates a new TCPTransporter with the given connection and timeout.
@@ -22,7 +21,6 @@ func NewTCPTransporter(conn net.Conn, timeout time.Duration, logger io.Writer) *
 		conn:     conn,
 		timeout:  timeout,
 		packager: NewTCPPackager(),
-		logger:   logger,
 	}
 }
 
