@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // DeviceRegister and Client are assumed to be defined elsewhere
@@ -140,4 +141,49 @@ func (m *ModbusRegisterManager) Start() {
 }
 func (m *ModbusRegisterManager) Stop() {
 	m.Stream.Stop()
+}
+
+type ModbusDevicePoller struct {
+	managers []*ModbusRegisterManager
+	interval time.Duration
+	stopCh   chan struct{}
+	wg       sync.WaitGroup
+}
+
+func NewModbusDevicePoller(interval time.Duration) *ModbusDevicePoller {
+	return &ModbusDevicePoller{
+		interval: interval,
+		stopCh:   make(chan struct{}),
+	}
+}
+
+func (dp *ModbusDevicePoller) AddManager(mgr *ModbusRegisterManager) {
+	dp.managers = append(dp.managers, mgr)
+}
+
+func (dp *ModbusDevicePoller) Start() {
+	dp.wg.Add(1)
+	go func() {
+		defer dp.wg.Done()
+		ticker := time.NewTicker(dp.interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-dp.stopCh:
+				return
+			case <-ticker.C:
+				for _, mgr := range dp.managers {
+					mgr.ReadAndStream()
+				}
+			}
+		}
+	}()
+}
+
+func (dp *ModbusDevicePoller) Stop() {
+	close(dp.stopCh)
+	dp.wg.Wait()
+	for _, mgr := range dp.managers {
+		mgr.Stop()
+	}
 }
