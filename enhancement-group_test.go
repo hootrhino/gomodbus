@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"math"
+	"reflect"
 	"testing"
 )
 
@@ -1117,5 +1118,105 @@ func TestDecodeValue_Int8(t *testing.T) {
 				t.Errorf("Expected float64 value %f, got %f", tt.expectF64, result.Float64)
 			}
 		})
+	}
+}
+
+func Test_GroupDeviceRegisterWithLogicalContinuity(t *testing.T) {
+	tests := []struct {
+		name      string
+		registers []DeviceRegister
+		expected  [][]DeviceRegister
+	}{
+		{
+			name: "Single group with logical continuity1",
+			registers: []DeviceRegister{
+				{SlaverId: 1, ReadAddress: 1, ReadQuantity: 2},
+				{SlaverId: 1, ReadAddress: 3, ReadQuantity: 2},
+				{SlaverId: 1, ReadAddress: 5, ReadQuantity: 2},
+			},
+			expected: [][]DeviceRegister{
+				{
+					{SlaverId: 1, ReadAddress: 1, ReadQuantity: 2},
+					{SlaverId: 1, ReadAddress: 3, ReadQuantity: 2},
+					{SlaverId: 1, ReadAddress: 5, ReadQuantity: 2},
+				},
+			},
+		},
+		{
+			name: "Single group with logical continuity2",
+			registers: []DeviceRegister{
+				{SlaverId: 1, ReadAddress: 0, ReadQuantity: 4},
+				{SlaverId: 1, ReadAddress: 4, ReadQuantity: 4},
+				{SlaverId: 1, ReadAddress: 8, ReadQuantity: 4},
+			},
+			expected: [][]DeviceRegister{
+				{
+					{SlaverId: 1, ReadAddress: 0, ReadQuantity: 4},
+					{SlaverId: 1, ReadAddress: 4, ReadQuantity: 4},
+					{SlaverId: 1, ReadAddress: 8, ReadQuantity: 4},
+				},
+			},
+		},
+		{
+			name: "Multiple groups with logical continuity",
+			registers: []DeviceRegister{
+				{SlaverId: 1, ReadAddress: 1, ReadQuantity: 2},
+				{SlaverId: 1, ReadAddress: 3, ReadQuantity: 2},
+				{SlaverId: 1, ReadAddress: 7, ReadQuantity: 2},
+				{SlaverId: 1, ReadAddress: 9, ReadQuantity: 2},
+			},
+			expected: [][]DeviceRegister{
+				{
+					{SlaverId: 1, ReadAddress: 1, ReadQuantity: 2},
+					{SlaverId: 1, ReadAddress: 3, ReadQuantity: 2},
+				},
+				{
+					{SlaverId: 1, ReadAddress: 7, ReadQuantity: 2},
+					{SlaverId: 1, ReadAddress: 9, ReadQuantity: 2},
+				},
+			},
+		},
+		{
+			name: "Registers with different SlaverIds",
+			registers: []DeviceRegister{
+				{SlaverId: 1, ReadAddress: 1, ReadQuantity: 2},
+				{SlaverId: 1, ReadAddress: 3, ReadQuantity: 2},
+				{SlaverId: 2, ReadAddress: 1, ReadQuantity: 2},
+				{SlaverId: 2, ReadAddress: 3, ReadQuantity: 2},
+			},
+			expected: [][]DeviceRegister{
+				{
+					{SlaverId: 1, ReadAddress: 1, ReadQuantity: 2},
+					{SlaverId: 1, ReadAddress: 3, ReadQuantity: 2},
+				},
+				{
+					{SlaverId: 2, ReadAddress: 1, ReadQuantity: 2},
+					{SlaverId: 2, ReadAddress: 3, ReadQuantity: 2},
+				},
+			},
+		},
+		{
+			name:      "No registers",
+			registers: []DeviceRegister{},
+			expected:  [][]DeviceRegister{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := GroupDeviceRegisterWithLogicalContinuity(tt.registers)
+			beautifulPrint(t, result)
+			if !reflect.DeepEqual(result, tt.expected) {
+				t.Errorf("GroupDeviceRegisterWithLogicalContinuity() = %v, want %v", result, tt.expected)
+			}
+		})
+	}
+}
+
+func beautifulPrint(t *testing.T, r [][]DeviceRegister) {
+	for _, group := range r {
+		for _, reg := range group {
+			t.Logf("SlaverId: %d, ReadAddress: %d, ReadQuantity: %d", reg.SlaverId, reg.ReadAddress, reg.ReadQuantity)
+		}
 	}
 }

@@ -468,11 +468,11 @@ func (h *ModbusHandler) ReadCustomData(funcCode uint16, slaveID uint16, startAdd
 	// !!! Assume response structure includes function code + byte count + data payload !!!
 	// !!! This assumption may NOT be valid for all custom function codes !!!
 	if len(respPDU) < 2 {
-		return nil, fmt.Errorf("modbus: invalid response length for custom func %02X (slave %d): expected at least 2 bytes, got %d. Note: Assumes standard read-like response structure.", funcCode, slaveID, len(respPDU))
+		return nil, fmt.Errorf("modbus: invalid response length for custom func %02X (slave %d): expected at least 2 bytes, got %d. Note: Assumes standard read-like response structure", funcCode, slaveID, len(respPDU))
 	}
 	byteCount := int(respPDU[1])
 	if len(respPDU) != 2+byteCount {
-		return nil, fmt.Errorf("modbus: invalid response data length for custom func %02X (slave %d): expected %d bytes, got %d. Note: Assumes standard read-like response structure.", funcCode, slaveID, byteCount, len(respPDU)-2)
+		return nil, fmt.Errorf("modbus: invalid response data length for custom func %02X (slave %d): expected %d bytes, got %d. Note: Assumes standard read-like response structure", funcCode, slaveID, byteCount, len(respPDU)-2)
 	}
 
 	// Return the raw data payload part (after func code and byte count)
@@ -556,7 +556,7 @@ func (h *ModbusHandler) ReadDeviceIdentity(slaveID uint16) (uint16, error) {
 	// A standard FC 0x11 response involves OBJs. The original code's parsing seems custom.
 	// Sticking to the original parsing logic for device identity (returning the first byte of additional data).
 	if len(respPDU) < 4 {
-		return 0, fmt.Errorf("modbus: invalid response length for func %02X (slave %d): expected at least 4 bytes, got %d. Note: Parsing based on non-standard FC11 response.", FuncCodeReadDeviceIdentity, slaveID, len(respPDU))
+		return 0, fmt.Errorf("modbus: invalid response length for func %02X (slave %d): expected at least 4 bytes, got %d. Note: Parsing based on non-standard FC11 response", FuncCodeReadDeviceIdentity, slaveID, len(respPDU))
 	}
 
 	// Original code's parsing logic: Run indicator is first byte of 'additional data'

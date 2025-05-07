@@ -99,7 +99,7 @@ func (m *RegisterManager) Stop() {
 
 // GroupDeviceRegister groups the registers based on address continuity
 func (m *RegisterManager) GroupDeviceRegister(registers []DeviceRegister) [][]DeviceRegister {
-	return GroupDeviceRegisterWithUniqueAddress(registers)
+	return GroupDeviceRegisterWithLogicalContinuity(registers)
 }
 
 // ReadGroupedData reads grouped data either concurrently or sequentially
