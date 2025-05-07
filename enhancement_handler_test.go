@@ -4,9 +4,10 @@ import (
 	"testing"
 	"time"
 
+	"net"
+
 	serial "github.com/hootrhino/goserial"
 )
-import "net"
 
 func TestModbusSlaverTCP(t *testing.T) {
 	// Import the net package to fix the undefined error
@@ -26,7 +27,7 @@ func TestModbusSlaverRTU(t *testing.T) {
 		DataBits: 8,
 		StopBits: 1,
 		Parity:   "N",
-		Timeout:  300 * time.Millisecond,
+		Timeout:  5000 * time.Millisecond,
 	})
 	if err != nil {
 		t.Fatalf("Failed to open serial port: %v", err)
@@ -38,26 +39,29 @@ func TestModbusSlaverRTU(t *testing.T) {
 
 func testHandler(t *testing.T, handler ModbusApi) {
 	{
-		for i := 0; i < 10; i++ {
-			result1, err := handler.ReadCoils(1, 0, 3)
+		for i := 1; i < 10; i++ {
+			result1, err := handler.ReadCoils(uint16(i), 0, 3)
 			if err != nil {
 				t.Fatalf("ReadCoils failed: %v", err)
 			}
 			t.Log("ReadCoils=", result1)
+			assertBoolsEqual(t, []bool{true, true, true}, result1)
 		}
 	}
 	{
-		for i := 0; i < 10; i++ {
-			result1, err := handler.ReadDiscreteInputs(1, 0, 3)
+		for i := 1; i < 10; i++ {
+			result1, err := handler.ReadDiscreteInputs(uint16(i), 0, 3)
 			if err != nil {
 				t.Fatalf("ReadDiscreteInputs failed: %v", err)
 			}
 			t.Log("ReadDiscreteInputs=", result1)
+			assertBoolsEqual(t, []bool{true, true, true}, result1)
+
 		}
 	}
 	{
-		for i := 0; i < 10; i++ {
-			result1, err := handler.ReadHoldingRegisters(1, 0, 5)
+		for i := 1; i < 10; i++ {
+			result1, err := handler.ReadHoldingRegisters(uint16(i), 0, 5)
 			if err != nil {
 				t.Fatalf("ReadHoldingRegisters failed: %v", err)
 			}
@@ -65,44 +69,68 @@ func testHandler(t *testing.T, handler ModbusApi) {
 		}
 	}
 	{
-		for i := 0; i < 10; i++ {
-			result1, err := handler.ReadInputRegisters(1, 0, 5)
+		for i := 1; i < 10; i++ {
+			result1, err := handler.ReadInputRegisters(uint16(i), 0, 5)
 			if err != nil {
 				t.Fatalf("ReadInputRegisters failed: %v", err)
 			}
 			t.Log("ReadInputRegisters=", result1)
+			assertUint16Equal(t, []uint16{0xABCD, 0xABCD, 0xABCD, 0xABCD, 0xABCD}, result1)
 		}
 	}
 	{
-		for i := 0; i < 10; i++ {
-			err := handler.WriteSingleCoil(1, 0, true)
+		for i := 1; i < 10; i++ {
+			err := handler.WriteSingleCoil(uint16(i), 0, true)
 			if err != nil {
 				t.Fatalf("WriteSingleCoil failed: %v", err)
 			}
 		}
 	}
 	{
-		for i := 0; i < 10; i++ {
-			err := handler.WriteSingleRegister(1, 0, 100)
+		for i := 1; i < 10; i++ {
+			err := handler.WriteSingleRegister(uint16(i), 0, 100)
 			if err != nil {
 				t.Fatalf("WriteSingleRegister failed: %v", err)
 			}
 		}
 	}
 	{
-		for i := 0; i < 10; i++ {
-			err := handler.WriteMultipleCoils(1, 0, []bool{true, false, true})
+		for i := 1; i < 10; i++ {
+			err := handler.WriteMultipleCoils(uint16(i), 0, []bool{false, false, false})
 			if err != nil {
 				t.Fatalf("WriteMultipleCoils failed: %v", err)
 			}
 		}
 	}
 	{
-		for i := 0; i < 10; i++ {
-			err := handler.WriteMultipleRegisters(1, 0, []uint16{1, 2, 3})
+		for i := 1; i < 10; i++ {
+			err := handler.WriteMultipleRegisters(uint16(i), 0, []uint16{1, 2, 3})
 			if err != nil {
 				t.Fatalf("WriteMultipleRegisters failed: %v", err)
 			}
+		}
+	}
+}
+func assertBoolsEqual(t *testing.T, expected []bool, actual []bool) {
+	if len(expected) != len(actual) {
+		t.Errorf("Expected length %d, but got %d", len(expected), len(actual))
+		return
+	}
+	for i := range expected {
+		if expected[i] != actual[i] {
+			t.Errorf("Expected %v, but got %v", expected, actual)
+			return
+		}
+	}
+}
+func assertUint16Equal(t *testing.T, expected []uint16, actual []uint16) {
+	if len(expected) != len(actual) {
+		t.Errorf("Expected length %d, but got %d", len(expected), len(actual))
+		return
+	}
+	for i := range expected {
+		if expected[i] != actual[i] {
+			t.Errorf("Expected %v, but got %v", expected, actual)
 		}
 	}
 }
