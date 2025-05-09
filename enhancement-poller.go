@@ -162,6 +162,9 @@ func (dp *ModbusDevicePoller) AddManager(mgr *ModbusRegisterManager) {
 }
 
 func (dp *ModbusDevicePoller) Start() {
+	for _, mgr := range dp.managers {
+		mgr.Start()
+	}
 	dp.wg.Add(1)
 	go func() {
 		defer dp.wg.Done()

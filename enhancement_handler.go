@@ -35,7 +35,7 @@ type ModbusHandler struct {
 	rtuTransporter *RTUTransporter // New field for RTU transporter
 	tcpTransporter *TCPTransporter // New field for TCP transporter
 	transmissionID uint16          // Track the current transaction ID
-	mode           string          // "rtu" or "tcp"
+	mode           string          // "RTU" or "TCP"
 }
 
 // GetType implements ModbusApi.
@@ -48,14 +48,14 @@ func (h *ModbusHandler) GetType() string {
 func NewModbusRTUHandler(port io.ReadWriteCloser, timeout time.Duration) ModbusApi {
 	return &ModbusHandler{
 		logger:         &DefaultLogger{},
-		mode:           "rtu",
+		mode:           "RTU",
 		rtuTransporter: NewRTUTransporter(port, timeout),
 	}
 }
 func NewModbusTCPHandler(conn net.Conn, timeout time.Duration) ModbusApi {
 	return &ModbusHandler{
 		logger:         &DefaultLogger{},
-		mode:           "tcp",
+		mode:           "TCP",
 		tcpTransporter: NewTCPTransporter(conn, timeout, nil),
 	}
 }
@@ -618,30 +618,30 @@ func (h *ModbusHandler) sendAndReceive(slaveID uint8, reqPDU []byte) ([]byte, er
 		if len(reqPDU) > 0 {
 			pduDataLog = reqPDU[1:]
 		}
-		if h.mode == "tcp" {
+		if h.mode == "TCP" {
 			RemoteAddr := h.tcpTransporter.conn.RemoteAddr().String()
 			fmt.Fprintf(h.logger, "modbus tcp: Sending request to slave %d, func %02X, PDU data: % X, RemoteAddr: %s", slaveID, funcCode, pduDataLog, RemoteAddr)
 		}
-		if h.mode == "rtu" {
+		if h.mode == "RTU" {
 			fmt.Fprintf(h.logger, "modbus rtu: Sending request to slave %d, func %02X, PDU data: % X", slaveID, funcCode, pduDataLog)
 		}
 	}
 
 	// Send the request PDU
 	var err error
-	if h.mode == "rtu" {
+	if h.mode == "RTU" {
 		err = h.rtuTransporter.Send(slaveID, reqPDU) // Assumes Transporter.Send adds SlaveID and CRC
-	} else if h.mode == "tcp" {
+	} else if h.mode == "TCP" {
 		err = h.tcpTransporter.Send(h.transmissionID, slaveID, reqPDU) // Assumes Transporter.Send adds SlaveID and CRC
 	}
 	if err != nil {
 		// Log and wrap the transport error
 		if h.logger != nil {
-			if h.mode == "tcp" {
+			if h.mode == "TCP" {
 				RemoteAddr := h.tcpTransporter.conn.RemoteAddr().String()
 				fmt.Fprintf(h.logger, "modbus tcp: Error sending request to slave %d: %v, RemoteAddr: %s", slaveID, err, RemoteAddr)
 			}
-			if h.mode == "rtu" {
+			if h.mode == "RTU" {
 				fmt.Fprintf(h.logger, "modbus rtu: Error sending request to slave %d: %v", slaveID, err)
 			}
 		}
@@ -650,20 +650,20 @@ func (h *ModbusHandler) sendAndReceive(slaveID uint8, reqPDU []byte) ([]byte, er
 	// var transactionID uint16
 	var respSlaveID uint8
 	var respPDU []byte
-	if h.mode == "rtu" {
+	if h.mode == "RTU" {
 		respSlaveID, respPDU, err = h.rtuTransporter.Receive()
 
-	} else if h.mode == "tcp" {
+	} else if h.mode == "TCP" {
 		_, respSlaveID, respPDU, err = h.tcpTransporter.Receive()
 	}
 	if err != nil {
 		// Log and wrap the transport error
 		if h.logger != nil {
-			if h.mode == "tcp" {
+			if h.mode == "TCP" {
 				RemoteAddr := h.tcpTransporter.conn.RemoteAddr().String()
 				fmt.Fprintf(h.logger, "modbus tcp: Error receiving response from slave %d: %v, RemoteAddr: %s", slaveID, err, RemoteAddr)
 			}
-			if h.mode == "rtu" {
+			if h.mode == "RTU" {
 				fmt.Fprintf(h.logger, "modbus rtu: Error receiving response from slave %d: %v", slaveID, err)
 			}
 		}
@@ -677,11 +677,11 @@ func (h *ModbusHandler) sendAndReceive(slaveID uint8, reqPDU []byte) ([]byte, er
 	if respSlaveID != slaveID {
 		err = fmt.Errorf("modbus: response slave ID mismatch: expected %d, got %d", slaveID, respSlaveID)
 		if h.logger != nil {
-			if h.mode == "tcp" {
+			if h.mode == "TCP" {
 				RemoteAddr := h.tcpTransporter.conn.RemoteAddr().String()
 				fmt.Fprintf(h.logger, "modbus tcp: Error response slave ID mismatch (slave %d): %v, RemoteAddr: %s", slaveID, err, RemoteAddr)
 			}
-			if h.mode == "rtu" {
+			if h.mode == "RTU" {
 				fmt.Fprintf(h.logger, "modbus rtu: Error response slave ID mismatch (slave %d): %v", slaveID, err)
 			}
 		}
@@ -695,11 +695,11 @@ func (h *ModbusHandler) sendAndReceive(slaveID uint8, reqPDU []byte) ([]byte, er
 		exceptionMsg := getExceptionMessage(exceptionCode) // Assumes getExceptionMessage exists
 		err = fmt.Errorf("modbus: received exception response (slave %d): code 0x%02X - %s", slaveID, exceptionCode, exceptionMsg)
 		if h.logger != nil {
-			if h.mode == "tcp" {
+			if h.mode == "TCP" {
 				RemoteAddr := h.tcpTransporter.conn.RemoteAddr().String()
 				fmt.Fprintf(h.logger, "modbus tcp: Error received exception response (slave %d): %v, RemoteAddr: %s", slaveID, err, RemoteAddr)
 			}
-			if h.mode == "rtu" {
+			if h.mode == "RTU" {
 				fmt.Fprintf(h.logger, "modbus rtu: Error received exception response (slave %d): %v", slaveID, err)
 			}
 		}
