@@ -10,6 +10,7 @@ import (
 
 // DeviceRegister represents a Modbus register with metadata
 type DeviceRegister struct {
+	UUID         string  `json:"uuid"`         // Unique identifier for the register
 	Tag          string  `json:"tag"`          // A unique identifier or label for the register
 	Alias        string  `json:"alias"`        // A human-readable name or alias for the register
 	SlaverId     uint8   `json:"slaverId"`     // ID of the Modbus slave device
