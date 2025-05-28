@@ -13,6 +13,7 @@ type RegisterManager struct {
 	exitSignal       chan struct{}
 	client           Client
 	clientType       string
+	closed           bool
 	mu               sync.Mutex // Protects shared resources
 }
 
@@ -24,6 +25,7 @@ func NewRegisterManager(client Client, queueSize int) *RegisterManager {
 		exitSignal:       make(chan struct{}),
 		client:           client,
 		clientType:       client.GetHandlerType(),
+		closed:           false,
 	}
 }
 
@@ -93,6 +95,10 @@ func (m *RegisterManager) LoadRegisters(registers []DeviceRegister) error {
 func (m *RegisterManager) Stop() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.closed {
+		return
+	}
+	m.closed = true
 	close(m.exitSignal)
 	close(m.dataQueue)
 }
@@ -104,6 +110,11 @@ func (m *RegisterManager) GroupDeviceRegister(registers []DeviceRegister) [][]De
 
 // ReadGroupedData reads grouped data either concurrently or sequentially
 func (m *RegisterManager) ReadGroupedData() []error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed {
+		return []error{fmt.Errorf("register manager is closed")}
+	}
 	var result [][]DeviceRegister
 	var errors []error
 	if m.clientType == "TCP" {

@@ -137,14 +137,18 @@ func readGroup(client Client, group []DeviceRegister) ([]DeviceRegister, error) 
 			group[i].Status = "INVALID:" + msg
 			return group, errors.New(msg)
 		}
-
-		// Ensure the Value slice has enough capacity
-		if cap(group[i].Value) < expectedLength {
-			group[i].Value = make([]byte, expectedLength)
+		// Handle virtual registers, Value can be set by application to FFFF for virtual registers
+		if group[i].Type == RegisterTypeVirtual {
+			group[i].Value = []byte{0xFF, 0xFF}
 		} else {
-			group[i].Value = group[i].Value[:expectedLength]
-		}
+			// Ensure the Value slice has enough capacity
+			if cap(group[i].Value) < expectedLength {
+				group[i].Value = make([]byte, expectedLength)
+			} else {
+				group[i].Value = group[i].Value[:expectedLength]
+			}
 
+		}
 		// Copy data safely
 		copy(group[i].Value, data[offset:offset+expectedLength])
 		group[i].Status = "VALID:OK"
