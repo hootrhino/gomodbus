@@ -21,8 +21,8 @@ type ModbusApi interface {
 	// Extended methods
 	ReadCustomData(funcCode uint16, slaveID uint16, startAddress, quantity uint16) ([]byte, error) // ReadCustomData reads custom data
 	WriteCustomData(funcCode uint16, slaveID uint16, startAddress uint16, data []byte) error       // WriteCustomData writes custom data
-	ReadDeviceIdentity(slaveID uint16) (uint16, error)                                             // ReadDeviceIdentity reads device identity
-	ReadExceptionStatus(slaveID uint16) (string, error)                                            // ReadExceptionStatus reads exception status
+	ReadRawDeviceIdentity(slaveID uint16) ([]byte, error)                                          // ReadRawDeviceIdentity reads raw device identity data
+	ReadDeviceIdentityWithHandler(slaveID uint16, handler func([]byte) error) error
 	// enhanced methods
 	ReadWithMask(slaveID uint16, readAddress, andMask, orMask uint16) (uint16, error) // ReadWithMask reads a register and applies a mask
 }

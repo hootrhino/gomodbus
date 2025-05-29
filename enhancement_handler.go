@@ -525,49 +525,40 @@ func (h *ModbusHandler) WriteCustomData(funcCode uint16, slaveID uint16, startAd
 }
 
 // ReadDeviceIdentity reads the device identity using Modbus function code 0x11.
-// This function has a specific response structure and does not use the generic read helper.
-func (h *ModbusHandler) ReadDeviceIdentity(slaveID uint16) (uint16, error) {
-	// Build request PDU with function code 0x11 (data payload is often empty)
-	var FuncCodeReadDeviceIdentity byte = 0x11
-	reqPDU, err := buildRequestPDU(FuncCodeReadDeviceIdentity, nil) // Assumes buildRequestPDU handles nil payload
+func (h *ModbusHandler) ReadDeviceIdentityWithHandler(slaveID uint16, handler func([]byte) error) error {
+	resp, err := h.ReadRawDeviceIdentity(slaveID)
+	if err != nil {
+		return err
+	}
+	return handler(resp)
+}
+
+// The caller is responsible for interpreting the payload using a custom parser.
+// Useful when the device uses non-standard formats or custom additions.
+func (h *ModbusHandler) ReadRawDeviceIdentity(slaveID uint16) ([]byte, error) {
+	const funcCode byte = 0x11
+
+	// Construct request PDU with FC 0x11
+	reqPDU, err := buildRequestPDU(funcCode, nil)
 	if err != nil {
 		if h.logger != nil {
-			fmt.Fprintf(h.logger, "modbus: Error building request PDU for func %02X (slave %d): %v", FuncCodeReadDeviceIdentity, slaveID, err)
+			fmt.Fprintf(h.logger, "modbus: Failed to build PDU for FC %02X (slave %d): %v\n", funcCode, slaveID, err)
 		}
-		return 0, fmt.Errorf("modbus: failed to build request PDU for func %02X (slave %d): %w", FuncCodeReadDeviceIdentity, slaveID, err)
+		return nil, fmt.Errorf("modbus: failed to build PDU for FC %02X (slave %d): %w", funcCode, slaveID, err)
 	}
 
-	// Send request and receive response
+	// Transmit and receive response PDU
 	respPDU, err := h.sendAndReceive(uint8(slaveID), reqPDU)
 	if err != nil {
-		return 0, fmt.Errorf("modbus: send/receive failed for func %02X (slave %d): %w", FuncCodeReadDeviceIdentity, slaveID, err)
+		return nil, fmt.Errorf("modbus: FC %02X communication with slave %d failed: %w", funcCode, slaveID, err)
 	}
 
-	// Validate response function code
-	if len(respPDU) == 0 || respPDU[0] != FuncCodeReadDeviceIdentity {
-		return 0, fmt.Errorf("modbus: unexpected function code in response for func %02X (slave %d): got %d", FuncCodeReadDeviceIdentity, slaveID, respPDU[0])
+	// Check response validity
+	if len(respPDU) < 1 || respPDU[0] != funcCode {
+		return nil, fmt.Errorf("modbus: unexpected FC %02X response from slave %d: got %v", funcCode, slaveID, respPDU)
 	}
 
-	// Validate minimum response length for FC 0x11
-	// Response structure: FuncCode (1) + MEI Type (1) + Device ID Code (1) + more data...
-	// Minimum is typically 3 bytes + subsequent data length specifier.
-	// Based on the original code, it seems to expect at least 4 bytes: FuncCode (1) + Run Indicator (1) + Additional Data Length (1) + Actual Data...
-	// Let's follow the original code's interpretation which seems non-standard FC 0x11, but specific to its use case.
-	// A standard FC 0x11 response involves OBJs. The original code's parsing seems custom.
-	// Sticking to the original parsing logic for device identity (returning the first byte of additional data).
-	if len(respPDU) < 4 {
-		return 0, fmt.Errorf("modbus: invalid response length for func %02X (slave %d): expected at least 4 bytes, got %d. Note: Parsing based on non-standard FC11 response", FuncCodeReadDeviceIdentity, slaveID, len(respPDU))
-	}
-
-	// Original code's parsing logic: Run indicator is first byte of 'additional data'
-	// This seems to interpret respPDU[1] as the run indicator directly.
-	// This is likely a simplified or non-standard implementation of FC 0x11.
-	runIndicator := respPDU[1]
-	// Additional data length is respPDU[2] in original code, also non-standard for FC11.
-	// additionalDataLength := respPDU[2] // Not used in return
-
-	// Return the run indicator as the device identity, as per original code's logic
-	return uint16(runIndicator), nil
+	return respPDU, nil
 }
 
 // ReadExceptionStatus reads the exception status using Modbus function code 0x07.

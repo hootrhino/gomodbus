@@ -1,6 +1,7 @@
 package modbus
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -132,5 +133,69 @@ func assertUint16Equal(t *testing.T, expected []uint16, actual []uint16) {
 		if expected[i] != actual[i] {
 			t.Errorf("Expected %v, but got %v", expected, actual)
 		}
+	}
+}
+
+func mockSendAndReceive(slaveID uint8, req []byte) ([]byte, error) {
+	// Mock response for FC 0x11
+	// Example: Function code + run indicator + other data
+	// Format: [FC 0x11] [run indicator] [optional vendor info]
+	return []byte{0x11, 0x01, 0x00}, nil
+}
+
+func TestReadRawDeviceIdentity(t *testing.T) {
+	port, err := serial.Open(&serial.Config{
+		Address:  "COM3",
+		BaudRate: 9600,
+		DataBits: 8,
+		StopBits: 1,
+		Parity:   "N",
+		Timeout:  5000 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("Failed to open serial port: %v", err)
+	}
+	defer port.Close()
+	handler := NewModbusRTUHandler(port, 1*time.Second)
+	resp, err := handler.ReadRawDeviceIdentity(1)
+	if err != nil {
+		t.Fatalf("ReadRawDeviceIdentity failed: %v", err)
+	}
+
+	// Validate the response length and content
+	if len(resp) < 2 || resp[0] != 0x11 {
+		t.Fatalf("Unexpected response: %v", resp)
+	}
+
+	t.Logf("Received raw response: %v", resp)
+}
+
+func TestReadDeviceIdentityWithHandler(t *testing.T) {
+
+	port, err := serial.Open(&serial.Config{
+		Address:  "COM3",
+		BaudRate: 9600,
+		DataBits: 8,
+		StopBits: 1,
+		Parity:   "N",
+		Timeout:  5000 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("Failed to open serial port: %v", err)
+	}
+	defer port.Close()
+	handler := NewModbusRTUHandler(port, 1*time.Second)
+	// Define a custom callback to handle the raw response
+	customHandler := func(data []byte) error {
+		if len(data) < 2 || data[0] != 0x11 {
+			return fmt.Errorf("invalid response data: %v", data)
+		}
+		t.Logf("Parsed data: %v", data)
+		return nil
+	}
+
+	err1 := handler.ReadDeviceIdentityWithHandler(1, customHandler)
+	if err1 != nil {
+		t.Fatalf("ReadDeviceIdentityWithHandler failed: %v", err)
 	}
 }
