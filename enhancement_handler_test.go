@@ -136,13 +136,6 @@ func assertUint16Equal(t *testing.T, expected []uint16, actual []uint16) {
 	}
 }
 
-func mockSendAndReceive(slaveID uint8, req []byte) ([]byte, error) {
-	// Mock response for FC 0x11
-	// Example: Function code + run indicator + other data
-	// Format: [FC 0x11] [run indicator] [optional vendor info]
-	return []byte{0x11, 0x01, 0x00}, nil
-}
-
 func TestReadRawDeviceIdentity(t *testing.T) {
 	port, err := serial.Open(&serial.Config{
 		Address:  "COM3",
