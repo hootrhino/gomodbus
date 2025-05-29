@@ -698,3 +698,27 @@ func (h *ModbusHandler) sendAndReceive(slaveID uint8, reqPDU []byte) ([]byte, er
 	}
 	return respPDU, nil
 }
+
+// ScanSlaves scans a range of Modbus slave addresses and returns the list of responsive ones.
+//
+// startID and endID are inclusive. The callback is optional, and will be called for each active device.
+// Typically uses function code 0x11 (Read Device Identity) for safe probing.
+func (h *ModbusHandler) ScanSlaves(startID, endID uint16, callback func(slaveID uint16, rawResp []byte)) ([]uint16, error) {
+	if startID < 1 || endID > 247 || startID > endID {
+		return nil, fmt.Errorf("modbus: invalid scan range [%d - %d]", startID, endID)
+	}
+
+	var activeSlaves []uint16
+
+	for id := startID; id <= endID; id++ {
+		resp, err := h.ReadRawDeviceIdentity(id)
+		if err == nil && len(resp) >= 1 && resp[0] == 0x11 {
+			activeSlaves = append(activeSlaves, id)
+			if callback != nil {
+				callback(id, resp)
+			}
+		}
+	}
+
+	return activeSlaves, nil
+}

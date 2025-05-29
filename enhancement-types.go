@@ -19,10 +19,11 @@ type ModbusApi interface {
 	WriteMultipleCoils(slaveID uint16, startAddress uint16, values []bool) error          // WriteMultipleCoils writes multiple coils
 	WriteMultipleRegisters(slaveID uint16, startAddress uint16, values []uint16) error    // WriteMultipleRegisters writes multiple registers
 	// Extended methods
-	ReadCustomData(funcCode uint16, slaveID uint16, startAddress, quantity uint16) ([]byte, error) // ReadCustomData reads custom data
-	WriteCustomData(funcCode uint16, slaveID uint16, startAddress uint16, data []byte) error       // WriteCustomData writes custom data
-	ReadRawDeviceIdentity(slaveID uint16) ([]byte, error)                                          // ReadRawDeviceIdentity reads raw device identity data
-	ReadDeviceIdentityWithHandler(slaveID uint16, handler func([]byte) error) error
+	ReadCustomData(funcCode uint16, slaveID uint16, startAddress, quantity uint16) ([]byte, error)     // ReadCustomData reads custom data
+	WriteCustomData(funcCode uint16, slaveID uint16, startAddress uint16, data []byte) error           // WriteCustomData writes custom data
+	ReadRawDeviceIdentity(slaveID uint16) ([]byte, error)                                              // ReadRawDeviceIdentity reads raw device identity data
+	ReadDeviceIdentityWithHandler(slaveID uint16, handler func([]byte) error) error                    // ReadDeviceIdentityWithHandler reads device identity and processes it with a handler
+	ScanSlaves(startID, endID uint16, callback func(slaveID uint16, rawResp []byte)) ([]uint16, error) // ScanSlaves scans a range of slave IDs and calls the callback for each response
 	// enhanced methods
 	ReadWithMask(slaveID uint16, readAddress, andMask, orMask uint16) (uint16, error) // ReadWithMask reads a register and applies a mask
 }
