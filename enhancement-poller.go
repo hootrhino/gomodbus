@@ -102,7 +102,6 @@ func (rs *RegisterStream) Push(data []DeviceRegister) {
 
 func (rs *RegisterStream) Stop() {
 	close(rs.stopCh)
-	close(rs.dataCh)
 }
 
 // ModbusRegisterManager coordinates scheduling and streaming

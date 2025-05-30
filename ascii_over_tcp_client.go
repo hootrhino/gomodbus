@@ -29,6 +29,11 @@ func ASCIIOverTCPClient(address string) Client {
 	return NewClient(handler)
 }
 
+// Get Interface Name
+func (mb *asciiTCPTransporter) GetInterfaceName() string {
+	return mb.Address
+}
+
 // asciiTCPTransporter implements Transporter interface.
 type asciiTCPTransporter struct {
 	tcpTransporter

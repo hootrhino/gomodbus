@@ -38,6 +38,12 @@ func RTUClient(address string) Client {
 	handler := NewRTUClientHandler(address)
 	return NewClient(handler)
 }
+
+// Get Interface Name
+func (mb *rtuSerialTransporter) GetInterfaceName() string {
+	return mb.Address
+}
+
 func (mb *rtuPackager) Type() string {
 	return "RTU"
 }
@@ -130,6 +136,34 @@ func (mb *rtuPackager) Decode(adu []byte) (pdu *ProtocolDataUnit, err error) {
 // rtuSerialTransporter implements Transporter interface.
 type rtuSerialTransporter struct {
 	serialPort
+}
+
+// For special usage
+func (mb *rtuSerialTransporter) SendRawBytes(aduRequest []byte) (aduResponse []byte, err error) {
+	mb.mu.Lock()
+	defer mb.mu.Unlock()
+	// Make sure port is connected
+	if err = mb.serialPort.connect(); err != nil {
+		return
+	}
+	// Start the timer to close when idle
+	mb.serialPort.lastActivity = time.Now()
+	mb.serialPort.startCloseTimer()
+	// Send the request
+	mb.serialPort.logf("modbus: sending % x\n", aduRequest)
+	if _, err = mb.port.Write(aduRequest); err != nil {
+		return
+	}
+	// Read 27 or 40 bytes
+	var n int
+	var data [rtuMaxSize]byte
+	n, err = io.ReadAtLeast(mb.port, data[:], 27)
+	if err != nil {
+		return
+	}
+	aduResponse = data[:n]
+	mb.serialPort.logf("modbus: received % x\n", aduResponse)
+	return
 }
 
 func (mb *rtuSerialTransporter) Send(aduRequest []byte) (aduResponse []byte, err error) {

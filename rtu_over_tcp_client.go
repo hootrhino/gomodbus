@@ -30,6 +30,11 @@ func RTUOverTCPClient(address string) Client {
 	return NewClient(handler)
 }
 
+// Get Interface Name
+func (mb *rtuTCPTransporter) GetInterfaceName() string {
+	return "RTUOverTCP"
+}
+
 // rtuTCPTransporter implements Transporter interface.
 type rtuTCPTransporter struct {
 	tcpTransporter

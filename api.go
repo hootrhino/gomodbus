@@ -53,6 +53,10 @@ type Client interface {
 	// starting from the specified one.
 	// It returns a map with the retrieved strings.
 	ReadDeviceIdentification(firstExtendedID byte) (results map[byte]string, err error)
+	// Raw Write
+	SendRawBytes(data []byte) (results []byte, err error)
+	// Get Interface
+	GetInterfaceName() string
 	// SetSlaveId sets the slave id for the client
 	SetSlaveId(slaveId byte)
 	// Get Type of handler

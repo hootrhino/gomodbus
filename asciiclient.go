@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"time"
 )
 
@@ -40,6 +41,12 @@ func ASCIIClient(address string) Client {
 	handler := NewASCIIClientHandler(address)
 	return NewClient(handler)
 }
+
+// Get Interface Name
+func (mb *asciiSerialTransporter) GetInterfaceName() string {
+	return mb.Address
+}
+
 func (mb *asciiPackager) Type() string {
 	return "ASCII"
 }
@@ -165,6 +172,34 @@ func (mb *asciiPackager) Decode(adu []byte) (pdu *ProtocolDataUnit, err error) {
 // asciiSerialTransporter implements Transporter interface.
 type asciiSerialTransporter struct {
 	serialPort
+}
+
+// For special usage
+func (mb *asciiSerialTransporter) SendRawBytes(aduRequest []byte) (aduResponse []byte, err error) {
+	mb.mu.Lock()
+	defer mb.mu.Unlock()
+	// Make sure port is connected
+	if err = mb.serialPort.connect(); err != nil {
+		return
+	}
+	// Start the timer to close when idle
+	mb.serialPort.lastActivity = time.Now()
+	mb.serialPort.startCloseTimer()
+	// Send the request
+	mb.serialPort.logf("modbus: sending % x\n", aduRequest)
+	if _, err = mb.port.Write(aduRequest); err != nil {
+		return
+	}
+	// Read 27 or 40 bytes
+	var n int
+	var data [rtuMaxSize]byte
+	n, err = io.ReadAtLeast(mb.port, data[:], 27)
+	if err != nil {
+		return
+	}
+	aduResponse = data[:n]
+	mb.serialPort.logf("modbus: received % x\n", aduResponse)
+	return
 }
 
 func (mb *asciiSerialTransporter) Send(aduRequest []byte) (aduResponse []byte, err error) {

@@ -46,6 +46,11 @@ func TCPClient(address string) Client {
 	return NewClient(handler)
 }
 
+// Get Interface Name
+func (mb *tcpTransporter) GetInterfaceName() string {
+	return mb.Address
+}
+
 func (mb *tcpPackager) SetSlaverId(slaveId byte) {
 	mb.slaveId = slaveId
 }
@@ -151,6 +156,27 @@ type tcpTransporter struct {
 	conn         net.Conn
 	closeTimer   *time.Timer
 	lastActivity time.Time
+}
+
+// For special usage
+func (mb *tcpTransporter) SendRawBytes(aduRequest []byte) (aduResponse []byte, err error) {
+	mb.mu.Lock()
+	defer mb.mu.Unlock()
+
+	mb.logf("modbus: sending % x\n", aduRequest)
+	if _, err = mb.conn.Write(aduRequest); err != nil {
+		return
+	}
+	// Read 27 or 40 bytes
+	var n int
+	var data [rtuMaxSize]byte
+	n, err = io.ReadAtLeast(mb.conn, data[:], 27)
+	if err != nil {
+		return
+	}
+	aduResponse = data[:n]
+	mb.logf("modbus: received % x\n", aduResponse)
+	return
 }
 
 // Send sends data to server and ensures response length is greater than header length.

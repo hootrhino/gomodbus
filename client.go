@@ -15,6 +15,7 @@ type ClientHandler interface {
 	Transporter
 	Type() string
 	SetSlaverId(slaveId byte)
+	GetInterfaceName() string
 }
 
 type client struct {
@@ -32,6 +33,21 @@ func NewClient(handler ClientHandler) Client {
 		handler:     handler,
 		clientType:  handler.Type(),
 	}
+}
+
+// GetInterfaceName returns the name of the interface used by the client.
+
+func (mb *client) GetInterfaceName() string {
+	return mb.handler.GetInterfaceName()
+}
+
+// SendRawBytes: send bytes and receive raw bytes
+func (mb *client) SendRawBytes(data []byte) (results []byte, err error) {
+	if len(data) < 1 {
+		err = fmt.Errorf("modbus: invalid data length")
+		return
+	}
+	return mb.transporter.SendRawBytes(data)
 }
 
 func (mb *client) SetSlaveId(slaveId byte) {
