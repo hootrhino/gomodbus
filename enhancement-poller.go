@@ -13,16 +13,16 @@ type OnErrorFunc func(error)
 
 // RegisterScheduler handles loading and organizing register groups
 type RegisterScheduler struct {
-	client     Client
+	client     ModbusApi
 	groups     [][]DeviceRegister
 	clientType string
 	mu         sync.Mutex
 }
 
-func NewRegisterScheduler(client Client) *RegisterScheduler {
+func NewRegisterScheduler(client ModbusApi) *RegisterScheduler {
 	return &RegisterScheduler{
 		client:     client,
-		clientType: client.GetHandlerType(),
+		clientType: client.GetType(),
 	}
 }
 
@@ -111,7 +111,7 @@ type ModbusRegisterManager struct {
 	Stream    *RegisterStream
 }
 
-func NewModbusRegisterManager(client Client, bufferSize int) *ModbusRegisterManager {
+func NewModbusRegisterManager(client ModbusApi, bufferSize int) *ModbusRegisterManager {
 	return &ModbusRegisterManager{
 		Scheduler: NewRegisterScheduler(client),
 		Stream:    NewRegisterStream(bufferSize),
@@ -174,8 +174,28 @@ func (dp *ModbusDevicePoller) Start() {
 			case <-dp.stopCh:
 				return
 			case <-ticker.C:
+				var wg sync.WaitGroup
+				errCh := make(chan error, len(dp.managers))
 				for _, mgr := range dp.managers {
-					mgr.ReadAndStream()
+					wg.Add(1)
+					go func(m *ModbusRegisterManager) {
+						defer wg.Done()
+						errs := m.ReadAndStream()
+						for _, err := range errs {
+							errCh <- err
+						}
+					}(mgr)
+				}
+				go func() {
+					wg.Wait()
+					close(errCh)
+				}()
+				for err := range errCh {
+					for _, mgr := range dp.managers {
+						if cb := mgr.Stream.onError.Load(); cb != nil {
+							cb.(OnErrorFunc)(err)
+						}
+					}
 				}
 			}
 		}

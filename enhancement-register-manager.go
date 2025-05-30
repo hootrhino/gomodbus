@@ -11,26 +11,26 @@ type RegisterManager struct {
 	dataQueue        chan []DeviceRegister
 	groupedRegisters [][]DeviceRegister
 	exitSignal       chan struct{}
-	client           Client
+	client           ModbusApi
 	clientType       string
 	closed           bool
 	mu               sync.Mutex // Protects shared resources
 }
 
 // NewRegisterManager creates a new instance of RegisterManager
-func NewRegisterManager(client Client, queueSize int) *RegisterManager {
+func NewRegisterManager(client ModbusApi, queueSize int) *RegisterManager {
 	return &RegisterManager{
 		dataQueue:        make(chan []DeviceRegister, queueSize),
 		groupedRegisters: [][]DeviceRegister{},
 		exitSignal:       make(chan struct{}),
 		client:           client,
-		clientType:       client.GetHandlerType(),
+		clientType:       client.GetType(),
 		closed:           false,
 	}
 }
 
-// GetCLient
-func (m *RegisterManager) GetClient() Client {
+// GetClient returns the Modbus client instance
+func (m *RegisterManager) GetClient() ModbusApi {
 	return m.client
 }
 

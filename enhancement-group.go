@@ -86,80 +86,119 @@ func sortByReadAddress(regs []DeviceRegister) {
 	})
 }
 
-// 2. Enhanced error handling in readGroup to provide more context
-func readGroup(client Client, group []DeviceRegister) ([]DeviceRegister, error) {
+// readGroup reads a group of DeviceRegister from the Modbus device
+func readGroup(client ModbusApi, group []DeviceRegister) ([]DeviceRegister, error) {
 	if len(group) == 0 {
 		return nil, fmt.Errorf("cannot read empty group")
 	}
 
-	client.SetSlaveId(group[0].SlaverId)
+	slaveID := uint16(group[0].SlaverId)
 	start := group[0].ReadAddress
 	var totalQuantity uint16
 	for _, reg := range group {
 		totalQuantity += reg.ReadQuantity
 	}
 
-	var data []byte
+	var data interface{}
 	var err error
-
-	// Function code validation before attempting to read
-	validFunctions := map[uint8]bool{1: true, 2: true, 3: true, 4: true}
-	if !validFunctions[group[0].Function] {
-		return nil, fmt.Errorf("unsupported Modbus function code: %d", group[0].Function)
-	}
 
 	switch group[0].Function {
 	case 1:
-		data, err = client.ReadCoils(start, totalQuantity)
+		data, err = client.ReadCoils(slaveID, start, totalQuantity)
 	case 2:
-		data, err = client.ReadDiscreteInputs(start, totalQuantity)
-	case 3:
-		data, err = client.ReadHoldingRegisters(start, totalQuantity)
-	case 4:
-		data, err = client.ReadInputRegisters(start, totalQuantity)
+		data, err = client.ReadDiscreteInputs(slaveID, start, totalQuantity)
+	case 3, 4:
+		if group[0].Function == 3 {
+			data, err = client.ReadHoldingRegisters(slaveID, start, totalQuantity)
+		} else {
+			data, err = client.ReadInputRegisters(slaveID, start, totalQuantity)
+		}
+	default:
+		return nil, fmt.Errorf("unsupported Modbus function code: %d", group[0].Function)
 	}
 
 	if err != nil {
-		for i := range group {
-			group[i].Status = fmt.Sprintf("INVALID:%s", err)
-		}
-		return group, fmt.Errorf("modbus read error (slave %d, addr %d): %w",
-			group[0].SlaverId, start, err)
+		return handleReadError(group, err)
 	}
 
-	// Process data into individual registers
+	return parseAndUpdateGroup(group, data)
+}
+
+// handleReadError handles the error when reading data from the Modbus device
+func handleReadError(group []DeviceRegister, err error) ([]DeviceRegister, error) {
+	for i := range group {
+		group[i].Status = fmt.Sprintf("INVALID:%s", err)
+	}
+	return group, fmt.Errorf("modbus read error (slave %d, addr %d): %w", group[0].SlaverId, group[0].ReadAddress, err)
+}
+
+// parseAndUpdateGroup parses the data and updates the status of the group
+func parseAndUpdateGroup(group []DeviceRegister, data interface{}) ([]DeviceRegister, error) {
 	offset := 0
 	for i := range group {
-		expectedLength := int(group[i].ReadQuantity * 2)
-		if offset+expectedLength > len(data) {
-			msg := fmt.Sprintf("Data out of bounds for register %d (SlaverId=%d, ReadAddress=%d, offset=%d, expected=%d, dataLength=%d)",
-				i, group[i].SlaverId, group[i].ReadAddress, offset, expectedLength, len(data))
-			group[i].Status = "INVALID:" + msg
-			return group, errors.New(msg)
-		}
-		// Handle virtual registers, Value can be set by application to FFFF for virtual registers
-		if group[i].Type == RegisterTypeVirtual {
-			group[i].Value = []byte{0xFF, 0xFF}
-		} else {
-			// Ensure the Value slice has enough capacity
-			if cap(group[i].Value) < expectedLength {
-				group[i].Value = make([]byte, expectedLength)
-			} else {
-				group[i].Value = group[i].Value[:expectedLength]
+		qty := int(group[i].ReadQuantity)
+		var err error
+		switch group[0].Function {
+		case 1, 2:
+			boolData, ok := data.([]bool)
+			if !ok {
+				return nil, errors.New("invalid data type for coils or discrete inputs")
 			}
-
+			err = parseBoolData(group[i], boolData, offset, qty)
+		case 3, 4:
+			uint16Data, ok := data.([]uint16)
+			if !ok {
+				return nil, errors.New("invalid data type for holding or input registers")
+			}
+			err = parseUint16Data(group[i], uint16Data, offset, qty)
 		}
-		// Copy data safely
-		copy(group[i].Value, data[offset:offset+expectedLength])
-		group[i].Status = "VALID:OK"
-		offset += expectedLength
+		if err != nil {
+			return group, err
+		}
+		offset += qty
 	}
-
 	return group, nil
 }
 
+// parseBoolData parses the boolean data and updates the register value and status
+func parseBoolData(reg DeviceRegister, data []bool, offset, qty int) error {
+	if offset+qty > len(data) {
+		msg := fmt.Sprintf("Data out of bounds for register (SlaverId=%d, ReadAddress=%d, offset=%d, qty=%d, dataLen=%d)",
+			reg.SlaverId, reg.ReadAddress, offset, qty, len(data))
+		reg.Status = "INVALID:" + msg
+		return errors.New(msg)
+	}
+	reg.Value = make([]byte, qty)
+	for j := 0; j < qty; j++ {
+		if data[offset+j] {
+			reg.Value[j] = 1
+		} else {
+			reg.Value[j] = 0
+		}
+	}
+	reg.Status = "VALID:OK"
+	return nil
+}
+
+// parseUint16Data parses the uint16 data and updates the register value and status
+func parseUint16Data(reg DeviceRegister, data []uint16, offset, qty int) error {
+	if offset+qty > len(data) {
+		msg := fmt.Sprintf("Register data out of bounds for register (SlaverId=%d, ReadAddress=%d, offset=%d, qty=%d, dataLen=%d)",
+			reg.SlaverId, reg.ReadAddress, offset, qty, len(data))
+		reg.Status = "INVALID:" + msg
+		return errors.New(msg)
+	}
+	reg.Value = make([]byte, qty*2)
+	for j := 0; j < qty; j++ {
+		reg.Value[j*2] = byte(data[offset+j] >> 8)
+		reg.Value[j*2+1] = byte(data[offset+j])
+	}
+	reg.Status = "VALID:OK"
+	return nil
+}
+
 // 3. Add context to error handling in concurrent reader
-func ReadGroupedDataConcurrently(client Client, grouped [][]DeviceRegister) ([][]DeviceRegister, []error) {
+func ReadGroupedDataConcurrently(client ModbusApi, grouped [][]DeviceRegister) ([][]DeviceRegister, []error) {
 	var wg sync.WaitGroup
 	result := make([][]DeviceRegister, len(grouped))
 
@@ -201,7 +240,7 @@ func ReadGroupedDataConcurrently(client Client, grouped [][]DeviceRegister) ([][
 }
 
 // Read data from modbus server sequentially
-func ReadGroupedDataSequential(client Client, grouped [][]DeviceRegister) ([][]DeviceRegister, []error) {
+func ReadGroupedDataSequential(client ModbusApi, grouped [][]DeviceRegister) ([][]DeviceRegister, []error) {
 	var result [][]DeviceRegister
 	var errors []error
 	for _, group := range grouped {

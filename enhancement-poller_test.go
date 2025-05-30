@@ -1,191 +1,85 @@
 package modbus
 
 import (
-	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	goserial "github.com/hootrhino/goserial"
 )
 
-func Test_Modbus_RegisterManager(t *testing.T) {
-	client := MakeNewTestUartClient()
-	defer client.Close()
-	manager := NewModbusRegisterManager(client, 10)
-
-	registers := []DeviceRegister{}
-
-	registers = append(registers, DeviceRegister{
-		Tag:          fmt.Sprintf("tag:uint16-1:0xABCD:%d", 1),
-		Alias:        fmt.Sprintf("tag:uint16-1:0xABCD:%d", 1),
-		SlaverId:     uint8(1),
-		Function:     3,
-		ReadAddress:  0,
-		ReadQuantity: 1,
-		DataType:     "uint16", // 0xABCD
-		DataOrder:    "AB",
+func TestModbusDevicePollerWithRTU(t *testing.T) {
+	port, err := goserial.Open(&goserial.Config{
+		Address:  "COM3",
+		BaudRate: 9600,
+		DataBits: 8,
+		StopBits: 1,
+		Parity:   "N",
+		Timeout:  5000 * time.Millisecond,
 	})
-	registers = append(registers, DeviceRegister{
-		Tag:          fmt.Sprintf("tag:uint16-2:0xABCD:%d", 1),
-		Alias:        fmt.Sprintf("tag:uint16-2:0xABCD:%d", 1),
-		SlaverId:     uint8(1),
-		Function:     3,
-		ReadAddress:  1,
-		ReadQuantity: 1,
-		DataType:     "uint16", // 0xABCD
-		DataOrder:    "AB",
-	})
-	registers = append(registers, DeviceRegister{
-		Tag:          fmt.Sprintf("tag:uint32-1:0xABCD:%d", 1),
-		Alias:        fmt.Sprintf("tag:uint32-1:0xABCD:%d", 1),
-		SlaverId:     uint8(1),
-		Function:     3,
-		ReadAddress:  100,
-		ReadQuantity: 2,
-		DataType:     "uint32", // 0xABCD
-		DataOrder:    "ABCD",
-	})
-	registers = append(registers, DeviceRegister{
-		Tag:          fmt.Sprintf("tag:uint32-2:0xABCD:%d", 1),
-		Alias:        fmt.Sprintf("tag:uint32-2:0xABCD:%d", 1),
-		SlaverId:     uint8(1),
-		Function:     3,
-		ReadAddress:  102,
-		ReadQuantity: 2,
-		DataType:     "uint32", // 0xABCD
-		DataOrder:    "ABCD",
-	})
-
-	if errLoad := manager.LoadRegisters(registers); errLoad != nil {
-		t.Fatal(errLoad)
+	if err != nil {
+		t.Fatalf("Failed to open serial port: %v", err)
 	}
-	manager.Stream.SetOnData(func(data []DeviceRegister) {
-		for _, r := range data {
-			fmt.Printf("TAG: %s, Addr: %04X, Val: %d\n", r.Tag, r.ReadAddress, r.Value)
-		}
-	})
+	defer port.Close()
 
-	manager.Stream.SetOnError(func(err error) {
-		t.Logf("error during read: %v", err)
-	})
-	manager.Stream.Start()
-	errs := manager.ReadAndStream()
-	if len(errs) > 0 {
-		for _, err := range errs {
-			t.Log("read error:", err)
-		}
+	handler := NewModbusRTUHandler(port, 1*time.Second)
+
+	tests := []struct {
+		name            string
+		registers       []DeviceRegister
+		expectedCalls   int
+		expectedDataLen int
+	}{
+		{
+			name: "RTU Poller with Success",
+			registers: []DeviceRegister{
+				{Tag: "reg1", SlaverId: 1, ReadAddress: 0, ReadQuantity: 5, Function: 3}, // 假设读取保持寄存器
+			},
+			expectedCalls:   1,
+			expectedDataLen: 5,
+		},
 	}
-	defer manager.Stream.Stop()
-	time.Sleep(2 * time.Second)
-}
 
-// Test ModbusDevicePoller
-func Test_Modbus_DevicePoller(t *testing.T) {
-	client := MakeNewTestUartClient()
-	defer client.Close()
-	manager := NewModbusRegisterManager(client, 10)
-	manager.SetOnData(func(data []DeviceRegister) {
-		for _, r := range data {
-			t.Logf("TAG: %s, Addr: %04X, Val: %d\n", r.Tag, r.ReadAddress, r.Value)
-		}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mgr := NewModbusRegisterManager(handler, 10)
+			if err := mgr.LoadRegisters(tt.registers); err != nil {
+				t.Fatalf("LoadRegisters failed: %v", err)
+			}
 
-	})
-	manager.SetOnError(func(err error) {
-		t.Logf("error during read: %v", err)
-	})
-	registers := []DeviceRegister{}
-	registers = append(registers, DeviceRegister{
-		Tag:          fmt.Sprintf("tag:uint16-1:0xABCD:%d", 1),
-		Alias:        fmt.Sprintf("tag:uint16-1:0xABCD:%d", 1),
-		SlaverId:     uint8(1),
-		Function:     3,
-		ReadAddress:  0,
-		ReadQuantity: 1,
-		DataType:     "uint16", // 0xABCD
-		DataOrder:    "AB",
-	})
-	registers = append(registers, DeviceRegister{
-		Tag:          fmt.Sprintf("tag:uint16-2:0xABCD:%d", 1),
-		Alias:        fmt.Sprintf("tag:uint16-2:0xABCD:%d", 1),
-		SlaverId:     uint8(1),
-		Function:     3,
-		ReadAddress:  1,
-		ReadQuantity: 1,
-		DataType:     "uint16", // 0xABCD
-		DataOrder:    "AB",
-	})
-	registers = append(registers, DeviceRegister{
-		Tag:          fmt.Sprintf("tag:uint32-1:0xABCD:%d", 1),
-		Alias:        fmt.Sprintf("tag:uint32-1:0xABCD:%d", 1),
-		SlaverId:     uint8(1),
-		Function:     3,
-		ReadAddress:  100,
-		ReadQuantity: 2,
-		DataType:     "uint32", // 0xABCD
-		DataOrder:    "ABCD",
-	})
-	// load registers
-	if errLoad := manager.LoadRegisters(registers); errLoad != nil {
-		t.Fatal(errLoad)
+			poller := NewModbusDevicePoller(100 * time.Millisecond)
+			poller.AddManager(mgr)
+
+			var dataReceived int32
+			var errorReceived int32
+			mgr.SetOnData(func(data []DeviceRegister) {
+				atomic.AddInt32(&dataReceived, 1)
+				if len(data) != tt.expectedDataLen {
+					t.Errorf("expected %d registers, got %d", tt.expectedDataLen, len(data))
+				}
+				for _, reg := range data {
+					if len(reg.Value) == 0 {
+						t.Errorf("register %s has empty value", reg.Tag)
+					}
+				}
+			})
+
+			mgr.SetOnError(func(err error) {
+				atomic.AddInt32(&errorReceived, 1)
+				t.Errorf("unexpected error: %v", err)
+			})
+
+			poller.Start()
+			defer poller.Stop()
+
+			time.Sleep(250 * time.Millisecond)
+
+			if atomic.LoadInt32(&dataReceived) == 0 {
+				t.Error("expected data callback to be called, but it wasn't")
+			}
+			if atomic.LoadInt32(&errorReceived) > 0 {
+				t.Errorf("expected no errors, but got %d", errorReceived)
+			}
+		})
 	}
-	// create poller
-	poller := NewModbusDevicePoller(1000 * time.Millisecond)
-	poller.AddManager(manager)
-	poller.Start()
-	defer poller.Stop()
-	time.Sleep(10 * time.Second)
-}
-
-// Benchmark ModbusDevicePoller
-func Benchmark_Modbus_DevicePoller(b *testing.B) {
-	client := MakeNewTestUartClient()
-	defer client.Close()
-	manager := NewModbusRegisterManager(client, 10)
-	manager.SetOnData(func(data []DeviceRegister) {
-		for _, r := range data {
-			b.Logf("TAG: %s, Addr: %04X, Val: %d\n", r.Tag, r.ReadAddress, r.Value)
-		}
-	})
-	manager.SetOnError(func(err error) {
-		b.Logf("error during read: %v", err)
-	})
-	registers := []DeviceRegister{}
-	registers = append(registers, DeviceRegister{
-		Tag:          fmt.Sprintf("tag:uint16-1:0xABCD:%d", 1),
-		Alias:        fmt.Sprintf("tag:uint16-1:0xABCD:%d", 1),
-		SlaverId:     uint8(1),
-		Function:     3,
-		ReadAddress:  0,
-		ReadQuantity: 1,
-		DataType:     "uint16", // 0xABCD
-		DataOrder:    "AB",
-	})
-	registers = append(registers, DeviceRegister{
-		Tag:          fmt.Sprintf("tag:uint16-2:0xABCD:%d", 1),
-		Alias:        fmt.Sprintf("tag:uint16-2:0xABCD:%d", 1),
-		SlaverId:     uint8(1),
-		Function:     3,
-		ReadAddress:  1,
-		ReadQuantity: 1,
-		DataType:     "uint16", // 0xABCD
-		DataOrder:    "AB",
-	})
-	registers = append(registers, DeviceRegister{
-		Tag:          fmt.Sprintf("tag:uint32-1:0xABCD:%d", 1),
-		Alias:        fmt.Sprintf("tag:uint32-1:0xABCD:%d", 1),
-		SlaverId:     uint8(1),
-		Function:     3,
-		ReadAddress:  100,
-		ReadQuantity: 2,
-		DataType:     "uint32", // 0xABCD
-		DataOrder:    "ABCD",
-	})
-	// load registers
-	if errLoad := manager.LoadRegisters(registers); errLoad != nil {
-		b.Fatal(errLoad)
-	}
-	// create poller
-	poller := NewModbusDevicePoller(1000 * time.Millisecond)
-	poller.AddManager(manager)
-	poller.Start()
-	defer poller.Stop()
-	time.Sleep(10 * time.Second)
 }
