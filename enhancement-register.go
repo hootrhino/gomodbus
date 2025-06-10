@@ -10,9 +10,8 @@ import (
 
 const (
 	// Register types
-	RegisterTypeMetric  = "Metric"  // Metric register type
-	RegisterTypeVirtual = "Virtual" // Virtual register type
-	RegisterTypeStatic  = "Static"  // Static register type
+	RegisterTypeMetric = "Metric" // Metric register type
+	RegisterTypeStatic = "Static" // Static register type
 )
 
 // DeviceRegister represents a Modbus register with metadata

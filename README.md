@@ -44,6 +44,63 @@ results, err = client.ReadCoils(2, 1)
 
 ---
 
+## ModbusDevicePoller
+
+`ModbusDevicePoller` is a high-level polling scheduler for gomodbus. It periodically reads register data from multiple Modbus devices in batches and dispatches the results asynchronously via callback functions.
+
+### Features
+
+- Manage multiple Modbus devices (TCP/RTU) simultaneously
+- Automatically groups registers with continuous addresses for efficient batch reading
+- Configurable polling interval
+- Asynchronous data and error callbacks for easy integration
+- Supports both concurrent and sequential reading
+
+### Example Usage
+
+```go
+handler := NewModbusRTUHandler(port, 1*time.Second)
+mgr := NewModbusRegisterManager(handler, 10)
+mgr.LoadRegisters([]DeviceRegister{
+    {Tag: "reg1", SlaverId: 1, ReadAddress: 0, ReadQuantity: 5, Function: 3},
+})
+mgr.SetOnData(func(data []DeviceRegister) {
+    // Handle received data
+})
+mgr.SetOnError(func(err error) {
+    // Handle error
+})
+
+poller := NewModbusDevicePoller(100 * time.Millisecond)
+poller.AddManager(mgr)
+poller.Start()
+defer poller.Stop()
+```
+
+### Main API
+
+- `NewModbusDevicePoller(interval time.Duration)` - Create a new poller with the specified interval
+- `AddManager(mgr *ModbusRegisterManager)` - Add a register manager to the poller
+- `Start()` - Start polling
+- `Stop()` - Stop polling
+
+### Test Reference
+
+See `enhancement-poller_test.go` for integration tests, for example:
+
+```go
+func TestModbusDevicePollerWithRTU(t *testing.T) {
+    // ...setup handler, manager, poller, callbacks, start and assert...
+}
+```
+
+### Use Cases
+
+- Industrial automation data acquisition
+- Periodic monitoring of multiple devices
+- Efficient batch reading of Modbus device data
+
+---
 ## Development Guide
 
 ### **1. DeviceRegister**
@@ -53,6 +110,7 @@ The `DeviceRegister` struct is a core component of this library. It represents a
 | Field          | Type      | Description                                                                     |
 | -------------- | --------- | ------------------------------------------------------------------------------- |
 | `Tag`          | `string`  | A unique identifier or label for the register.                                  |
+| Type           | `string`  | Type of the register (e.g., `Metric`,  `Static`).                               |
 | `Alias`        | `string`  | A human-readable name or alias for the register.                                |
 | `SlaverId`     | `uint8`   | ID of the Modbus slave device.                                                  |
 | `Function`     | `uint8`   | Modbus function code (e.g., 3 for Read Holding Registers).                      |
@@ -199,7 +257,6 @@ manager.ReadGroupedData()
 ---
 
 ## References
-This project is based on goburrow/modbus, available at [this link](https://github.com/goburrow/modbus). Thank you for your valuable contribution to the developer community.
 
 - [Modbus Specifications](http://www.modbus.org/specs.php)
 - [Modbus Protocol Description](https://www.modbustools.com/modbus.html)
