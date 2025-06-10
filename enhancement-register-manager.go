@@ -24,7 +24,7 @@ func NewRegisterManager(client ModbusApi, queueSize int) *RegisterManager {
 		groupedRegisters: [][]DeviceRegister{},
 		exitSignal:       make(chan struct{}),
 		client:           client,
-		clientType:       client.GetType(),
+		clientType:       client.GetMode(),
 		closed:           false,
 	}
 }

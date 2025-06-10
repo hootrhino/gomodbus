@@ -22,7 +22,7 @@ type RegisterScheduler struct {
 func NewRegisterScheduler(client ModbusApi) *RegisterScheduler {
 	return &RegisterScheduler{
 		client:     client,
-		clientType: client.GetType(),
+		clientType: client.GetMode(),
 	}
 }
 

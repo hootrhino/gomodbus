@@ -39,7 +39,7 @@ type ModbusHandler struct {
 }
 
 // GetType implements ModbusApi.
-func (h *ModbusHandler) GetType() string {
+func (h *ModbusHandler) GetMode() string {
 	return h.mode
 }
 
@@ -62,6 +62,51 @@ func NewModbusTCPHandler(conn net.Conn, timeout time.Duration) ModbusApi {
 
 func (h *ModbusHandler) SetLogger(logger io.Writer) {
 	h.logger = logger
+}
+
+// ReadRawData reads raw data from the Modbus device.
+func (h *ModbusHandler) ReadRawData(reqPDU []byte) ([]byte, error) {
+	if h.mode == "RTU" && h.rtuTransporter != nil {
+		err := h.rtuTransporter.WriteRaw(reqPDU)
+		if err != nil {
+			if h.logger != nil {
+				fmt.Fprintf(h.logger, "modbus: Error writing raw data: %v", err)
+			}
+			return nil, fmt.Errorf("modbus: failed to write raw data: %w", err)
+		}
+		// Read the response PDU from the RTU transporter
+		respPDU, err := h.rtuTransporter.ReadRaw()
+		if err != nil {
+			if h.logger != nil {
+				fmt.Fprintf(h.logger, "modbus: Error reading raw data: %v", err)
+			}
+			return nil, fmt.Errorf("modbus: failed to read raw data: %w", err)
+		}
+		return respPDU, nil
+	}
+	if h.mode == "TCP" && h.tcpTransporter != nil {
+		err := h.tcpTransporter.WriteRaw(reqPDU)
+		if err != nil {
+			if h.logger != nil {
+				fmt.Fprintf(h.logger, "modbus: Error writing raw data: %v", err)
+			}
+			return nil, fmt.Errorf("modbus: failed to write raw data: %w", err)
+		}
+		// Read the response PDU from the TCP transporter
+		respPDU, err := h.tcpTransporter.ReadRaw()
+		if err != nil {
+			if h.logger != nil {
+				fmt.Fprintf(h.logger, "modbus: Error reading raw data: %v", err)
+			}
+			return nil, fmt.Errorf("modbus: failed to read raw data: %w", err)
+		}
+		return respPDU, nil
+	}
+	if h.logger != nil {
+		fmt.Fprintf(h.logger, "modbus: Unsupported mode '%s' for ReadRawData", h.mode)
+	}
+	return nil, fmt.Errorf("modbus: unsupported mode '%s' for ReadRawData", h.mode)
+
 }
 
 // readModbusData sends a standard read request (address + quantity PDU data)
@@ -697,28 +742,4 @@ func (h *ModbusHandler) sendAndReceive(slaveID uint8, reqPDU []byte) ([]byte, er
 		return nil, err
 	}
 	return respPDU, nil
-}
-
-// ScanSlaves scans a range of Modbus slave addresses and returns the list of responsive ones.
-//
-// startID and endID are inclusive. The callback is optional, and will be called for each active device.
-// Typically uses function code 0x11 (Read Device Identity) for safe probing.
-func (h *ModbusHandler) ScanSlaves(startID, endID uint16, callback func(slaveID uint16, rawResp []byte)) ([]uint16, error) {
-	if startID < 1 || endID > 247 || startID > endID {
-		return nil, fmt.Errorf("modbus: invalid scan range [%d - %d]", startID, endID)
-	}
-
-	var activeSlaves []uint16
-
-	for id := startID; id <= endID; id++ {
-		resp, err := h.ReadRawDeviceIdentity(id)
-		if err == nil && len(resp) >= 1 && resp[0] == 0x11 {
-			activeSlaves = append(activeSlaves, id)
-			if callback != nil {
-				callback(id, resp)
-			}
-		}
-	}
-
-	return activeSlaves, nil
 }

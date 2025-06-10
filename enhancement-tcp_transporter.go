@@ -24,17 +24,43 @@ func NewTCPTransporter(conn net.Conn, timeout time.Duration, logger io.Writer) *
 	}
 }
 
+func (t *TCPTransporter) WriteRaw(pdu []byte) error {
+	// Set timeout for write operation
+	if err := t.conn.SetDeadline(time.Now().Add(t.timeout)); err != nil {
+		return err
+	}
+	defer t.conn.SetDeadline(time.Time{}) // Reset deadline after write
+	// Write the raw PDU to the connection
+	_, err := t.conn.Write(pdu)
+	return err
+}
+
+// ReadRaw reads a raw bytes serial port.
+func (t *TCPTransporter) ReadRaw() ([]byte, error) {
+	buffer := make([]byte, 64) // Adjust size as needed
+	// Set timeout for read operation
+	if err := t.conn.SetDeadline(time.Now().Add(t.timeout)); err != nil {
+		return nil, err
+	}
+	defer t.conn.SetDeadline(time.Time{}) // Reset deadline after read
+	n, err := t.conn.Read(buffer)
+	if err != nil {
+		return nil, err
+	}
+	return buffer[:n], nil
+}
+
 // Send sends a Modbus TCP PDU over the connection.
 func (t *TCPTransporter) Send(transactionID uint16, unitID uint8, pdu []byte) error {
 	frame, errPack := t.packager.Pack(transactionID, unitID, pdu)
 	if errPack != nil {
 		return errPack
 	}
-
+	// Set timeout for write operation
 	if err := t.conn.SetDeadline(time.Now().Add(t.timeout)); err != nil {
 		return err
 	}
-
+	defer t.conn.SetDeadline(time.Time{}) // Reset deadline after write
 	_, errWrite := t.conn.Write(frame)
 	return errWrite
 }
@@ -46,7 +72,7 @@ func (t *TCPTransporter) Receive() (transactionID uint16, unitID uint8, pdu []by
 	if err := t.conn.SetDeadline(deadline); err != nil {
 		return 0, 0, nil, fmt.Errorf("failed to set deadline: %w", err)
 	}
-
+	defer t.conn.SetDeadline(time.Time{}) // Reset deadline after read
 	// Read MBAP Header (7 bytes)
 	header := make([]byte, 7)
 	if _, err := io.ReadFull(t.conn, header); err != nil {

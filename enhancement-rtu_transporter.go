@@ -22,6 +22,21 @@ func NewRTUTransporter(port io.ReadWriteCloser, timeout time.Duration) *RTUTrans
 		packager: NewRTUPackager(),
 	}
 }
+func (t *RTUTransporter) WriteRaw(pdu []byte) error {
+	// Set timeout for write operation
+	_, err := t.port.Write(pdu)
+	return err
+}
+
+// ReadRaw reads a raw bytes serial port.
+func (t *RTUTransporter) ReadRaw() ([]byte, error) {
+	buffer := make([]byte, 64) // Adjust size as needed
+	n, err := t.port.Read(buffer)
+	if err != nil {
+		return nil, err
+	}
+	return buffer[:n], nil
+}
 
 // Send sends a Modbus RTU PDU over the serial port.
 func (t *RTUTransporter) Send(slaveID uint8, pdu []byte) error {
