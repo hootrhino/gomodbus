@@ -257,7 +257,5 @@ manager.ReadGroupedData()
 ---
 
 ## References
-
 - [Modbus Specifications](http://www.modbus.org/specs.php)
 - [Modbus Protocol Description](https://www.modbustools.com/modbus.html)
-```
