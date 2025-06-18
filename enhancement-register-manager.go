@@ -2,6 +2,7 @@ package modbus
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 )
 
@@ -87,7 +88,14 @@ func (m *RegisterManager) LoadRegisters(registers []DeviceRegister) error {
 		}
 		tagMap[register.Tag] = true
 	}
-	m.groupedRegisters = m.GroupDeviceRegister(registers)
+	tempRegisters := make([]DeviceRegister, 0, len(registers))
+	for _, register := range registers {
+		if strings.ToLower(register.Type) == "virtual" {
+			continue
+		}
+		tempRegisters = append(tempRegisters, register)
+	}
+	m.groupedRegisters = m.GroupDeviceRegister(tempRegisters)
 	return nil
 }
 
