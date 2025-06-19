@@ -116,11 +116,11 @@ func (m *RegisterManager) GroupDeviceRegister(registers []DeviceRegister) [][]De
 }
 
 // ReadGroupedData reads grouped data either concurrently or sequentially
-func (m *RegisterManager) ReadGroupedData() []error {
+func (m *RegisterManager) ReadGroupedData() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.closed {
-		return []error{fmt.Errorf("register manager is closed")}
+		return
 	}
 	var result [][]DeviceRegister
 	var errors []error
@@ -138,8 +138,10 @@ func (m *RegisterManager) ReadGroupedData() []error {
 				goto NIL
 			}
 		NIL:
-			return nil
+			return
 		}
 	}
-	return errors
+	for _, err := range errors {
+		m.OnErrorCallback(err)
+	}
 }
