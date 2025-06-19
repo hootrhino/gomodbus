@@ -135,8 +135,9 @@ func (m *RegisterManager) ReadGroupedData() []error {
 		case m.dataQueue <- group:
 		case _, ok := <-m.exitSignal:
 			if !ok {
-				return nil
+				goto NIL
 			}
+		NIL:
 			return nil
 		}
 	}

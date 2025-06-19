@@ -10,8 +10,9 @@ import (
 
 const (
 	// Register types
-	RegisterTypeMetric = "Metric" // Metric register type
-	RegisterTypeStatic = "Static" // Static register type
+	RegisterTypeMetric  = "metric"  // Metric register type
+	RegisterTypeStatic  = "static"  // Static register type
+	RegisterTypeVirtual = "virtual" // Virtual register type
 )
 
 // DeviceRegister represents a Modbus register with metadata
@@ -49,7 +50,7 @@ func (r DeviceRegister) DecodeValue() (DecodedValue, error) {
 
 	// Apply byte reordering
 	bytes := reorderBytes(r.Value, r.DataOrder)
-	res := DecodedValue{Raw: bytes}
+	res := DecodedValue{Raw: bytes, Type: r.DataType}
 
 	switch r.DataType {
 	case "bitfield":
@@ -243,6 +244,7 @@ func reorderBytes(data []byte, order string) []byte {
 type DecodedValue struct {
 	Raw     []byte  `json:"raw"`     // Raw value as bytes
 	Float64 float64 `json:"float64"` // Value as float64
+	Type    string  `json:"type"`    // Type of the value
 	AsType  any     `json:"asType"`  // Value as any type
 }
 

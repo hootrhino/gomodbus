@@ -5,6 +5,13 @@
   <h2>Fault-tolerant, fail-fast implementation of Modbus protocol in Go.</h2>
 </div>
 
+## Introduction
+
+![1750336545864](image/README/1750336545864.png)
+
+Fault-tolerant, fail-fast implementation of Modbus protocol in Go.
+
+
 ## Supported functions
 ### Bit access:
 *   Read Discrete Inputs
