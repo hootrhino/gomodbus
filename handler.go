@@ -8,6 +8,58 @@ import (
 	"time"
 )
 
+// buildRequestPDU constructs a Modbus request PDU.
+// It takes the function code and the data payload as input.
+func buildRequestPDU(functionCode uint8, data []byte) ([]byte, error) {
+	pdu := make([]byte, 1+len(data))
+	pdu[0] = functionCode
+	copy(pdu[1:], data)
+	return pdu, nil
+}
+
+// getExceptionMessage returns a human-readable message for a Modbus exception code.
+func getExceptionMessage(exceptionCode uint8) string {
+	switch exceptionCode {
+	case 0x01:
+		return "Illegal function"
+	case 0x02:
+		return "Illegal data address"
+	case 0x03:
+		return "Illegal data value"
+	case 0x04:
+		return "Slave device failure"
+	case 0x05:
+		return "Acknowledge"
+	case 0x06:
+		return "Slave device busy"
+	case 0x08:
+		return "Memory parity error"
+	case 0x0A:
+		return "Gateway path unavailable"
+	case 0x0B:
+		return "Gateway target device failed to respond"
+	default:
+		return "Unknown exception code"
+	}
+}
+
+// CRC16 calculates the Modbus CRC16 checksum.
+func CRC16(data []byte) uint16 {
+	crc := uint16(0xFFFF)
+	for _, b := range data {
+		crc ^= uint16(b)
+		for i := 0; i < 8; i++ {
+			if (crc & 0x0001) != 0 {
+				crc >>= 1
+				crc ^= 0xA001
+			} else {
+				crc >>= 1
+			}
+		}
+	}
+	return ((crc & 0xFF) << 8) | ((crc >> 8) & 0xFF)
+}
+
 // DefaultLogger is a simple logger that implements the io.Writer interface.
 type DefaultLogger struct {
 }
@@ -31,25 +83,24 @@ const (
 
 // ModbusHandler implements the ModbusApi interface for handling Modbus requests.
 type ModbusHandler struct {
-	logger         io.Writer       // Logger for debug output
-	rtuTransporter *RTUTransporter // New field for RTU transporter
-	tcpTransporter *TCPTransporter // New field for TCP transporter
-	transmissionID uint16          // Track the current transaction ID
-	mode           string          // "RTU" or "TCP"
-	lastError      error           // Cache the last Modbus error
-
+	logger          io.Writer       // Logger for debug output
+	rtuTransporter  *RTUTransporter // New field for RTU transporter
+	tcpTransporter  *TCPTransporter // New field for TCP transporter
+	transmissionID  uint16          // Track the current transaction ID
+	mode            string          // "RTU" or "TCP"
+	lastModbusError *ModbusError    // Cache the last Modbus error
 }
 
-// GetLastError returns the last Modbus error encountered by this handler.
-func (h *ModbusHandler) GetLastError() error {
-	return h.lastError
+// GetLastModbusError returns the last cached ModbusError.
+func (h *ModbusHandler) GetLastModbusError() *ModbusError {
+	return h.lastModbusError
 }
 
-// setLastError sets and logs the last Modbus error.
-func (h *ModbusHandler) setLastError(err error) {
-	h.lastError = err
+// setLastModbusError sets and logs the last ModbusError.
+func (h *ModbusHandler) setLastModbusError(err *ModbusError) {
+	h.lastModbusError = err
 	if err != nil && h.logger != nil {
-		fmt.Fprintf(h.logger, "modbus: cached error: %v", err)
+		fmt.Fprintf(h.logger, "modbus: cached ModbusError: %v\n", err)
 	}
 }
 
@@ -689,7 +740,6 @@ func (h *ModbusHandler) sendAndReceive(slaveID uint8, reqPDU []byte) ([]byte, er
 	if err != nil {
 		// Log and wrap the transport error
 		if h.logger != nil {
-			h.setLastError(fmt.Errorf("modbus: rtu transport send failed (slave %d): %w", slaveID, err))
 			if h.mode == "TCP" {
 				RemoteAddr := h.tcpTransporter.conn.RemoteAddr().String()
 				fmt.Fprintf(h.logger, "modbus tcp: Error sending request to slave %d: %v, RemoteAddr: %s", slaveID, err, RemoteAddr)
@@ -712,7 +762,6 @@ func (h *ModbusHandler) sendAndReceive(slaveID uint8, reqPDU []byte) ([]byte, er
 	if err != nil {
 		// Log and wrap the transport error
 		if h.logger != nil {
-			h.setLastError(fmt.Errorf("modbus: rtu transport receive failed (slave %d): %w", slaveID, err))
 			if h.mode == "TCP" {
 				RemoteAddr := h.tcpTransporter.conn.RemoteAddr().String()
 				fmt.Fprintf(h.logger, "modbus tcp: Error receiving response from slave %d: %v, RemoteAddr: %s", slaveID, err, RemoteAddr)
@@ -730,7 +779,6 @@ func (h *ModbusHandler) sendAndReceive(slaveID uint8, reqPDU []byte) ([]byte, er
 	// Validate the received slave ID
 	if respSlaveID != slaveID {
 		err = fmt.Errorf("modbus: response slave ID mismatch: expected %d, got %d", slaveID, respSlaveID)
-		h.setLastError(err)
 		if h.logger != nil {
 			if h.mode == "TCP" {
 				RemoteAddr := h.tcpTransporter.conn.RemoteAddr().String()
@@ -747,9 +795,13 @@ func (h *ModbusHandler) sendAndReceive(slaveID uint8, reqPDU []byte) ([]byte, er
 		if len(respPDU) > 1 {
 			exceptionCode = respPDU[1] // Exception code is in the second byte
 		}
+		modbusErr := &ModbusError{
+			FunctionCode:  respPDU[0] & 0x7F,
+			ExceptionCode: exceptionCode,
+		}
+		h.setLastModbusError(modbusErr)
 		exceptionMsg := getExceptionMessage(exceptionCode) // Assumes getExceptionMessage exists
 		err = fmt.Errorf("modbus: received exception response (slave %d): code 0x%02X - %s", slaveID, exceptionCode, exceptionMsg)
-		h.setLastError(err)
 		if h.logger != nil {
 			if h.mode == "TCP" {
 				RemoteAddr := h.tcpTransporter.conn.RemoteAddr().String()

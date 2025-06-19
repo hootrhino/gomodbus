@@ -79,9 +79,9 @@ func (e *ModbusError) Error() string {
 // ModbusApi defines the interface for Modbus client operations.
 type ModbusApi interface {
 	// Handler API
-	GetLastError() error // GetLastError returns the last Modbus error encountered by this handler
-	GetMode() string     // GetType returns the type of the handler: "tcp", "rtu", etc.
-	SetLogger(io.Writer) // SetLogger sets the logger for the client
+	GetLastModbusError() *ModbusError // GetLastError returns the last Modbus error encountered by this handler
+	GetMode() string                  // GetType returns the type of the handler: "tcp", "rtu", etc.
+	SetLogger(io.Writer)              // SetLogger sets the logger for the client
 	// Standard methods
 	ReadCoils(slaveID uint16, startAddress, quantity uint16) ([]bool, error)              // ReadCoils reads multiple coils
 	ReadDiscreteInputs(slaveID uint16, startAddress, quantity uint16) ([]bool, error)     // ReadDiscreteInputs reads multiple discrete inputs
