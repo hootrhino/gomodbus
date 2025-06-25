@@ -374,27 +374,6 @@ func (h *ModbusHandler) ReadInputRegisters(slaveID uint16, startAddress, quantit
 	return registers, nil
 }
 
-// ReadWithMask reads a single holding register and applies an AND/OR mask logically.
-// Note: This implementation reads a register (FC 0x03) and performs the mask operation
-// in the client code. It does NOT use the Modbus function code 0x16 (Read/Write Multiple Registers),
-// which can perform a masked write on the server side.
-func (h *ModbusHandler) ReadWithMask(slaveID uint16, readAddress uint16, andMask uint16, orMask uint16) (uint16, error) {
-	// Use ReadHoldingRegisters to read the single register
-	values, err := h.ReadHoldingRegisters(slaveID, readAddress, 1)
-	if err != nil {
-		// Error is already wrapped by ReadHoldingRegisters -> readModbusData -> sendAndReceive
-		return 0, fmt.Errorf("modbus: failed to read register for ReadWithMask (slave %d, address %d): %w", slaveID, readAddress, err)
-	}
-	if len(values) == 0 {
-		// This case indicates ReadHoldingRegisters returned no values despite no error.
-		// Should ideally not happen with quantity 1, but defensively check.
-		return 0, fmt.Errorf("modbus: no value returned for ReadWithMask (slave %d, address %d)", slaveID, readAddress)
-	}
-
-	// Apply the mask logically in the client
-	return uint16(values[0]&andMask | orMask), nil
-}
-
 // WriteSingleCoil writes a single coil to the Modbus device.
 func (h *ModbusHandler) WriteSingleCoil(slaveID uint16, address uint16, value bool) error {
 	// Build PDU data part (address + value)
@@ -633,43 +612,6 @@ func (h *ModbusHandler) WriteCustomData(funcCode uint16, slaveID uint16, startAd
 	}
 
 	return nil
-}
-
-// ReadDeviceIdentity reads the device identity using Modbus function code 0x11.
-func (h *ModbusHandler) ReadDeviceIdentityWithHandler(slaveID uint16, handler func([]byte) error) error {
-	resp, err := h.ReadRawDeviceIdentity(slaveID)
-	if err != nil {
-		return err
-	}
-	return handler(resp)
-}
-
-// The caller is responsible for interpreting the payload using a custom parser.
-// Useful when the device uses non-standard formats or custom additions.
-func (h *ModbusHandler) ReadRawDeviceIdentity(slaveID uint16) ([]byte, error) {
-	const funcCode byte = 0x11
-
-	// Construct request PDU with FC 0x11
-	reqPDU, err := buildRequestPDU(funcCode, nil)
-	if err != nil {
-		if h.logger != nil {
-			fmt.Fprintf(h.logger, "modbus: Failed to build PDU for FC %02X (slave %d): %v\n", funcCode, slaveID, err)
-		}
-		return nil, fmt.Errorf("modbus: failed to build PDU for FC %02X (slave %d): %w", funcCode, slaveID, err)
-	}
-
-	// Transmit and receive response PDU
-	respPDU, err := h.sendAndReceive(uint8(slaveID), reqPDU)
-	if err != nil {
-		return nil, fmt.Errorf("modbus: FC %02X communication with slave %d failed: %w", funcCode, slaveID, err)
-	}
-
-	// Check response validity
-	if len(respPDU) < 1 || respPDU[0] != funcCode {
-		return nil, fmt.Errorf("modbus: unexpected FC %02X response from slave %d: got %v", funcCode, slaveID, respPDU)
-	}
-
-	return respPDU, nil
 }
 
 // ReadExceptionStatus reads the exception status using Modbus function code 0x07.

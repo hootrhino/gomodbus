@@ -30,7 +30,7 @@ func (t *RTUTransporter) WriteRaw(pdu []byte) error {
 
 // ReadRaw reads a raw bytes serial port.
 func (t *RTUTransporter) ReadRaw() ([]byte, error) {
-	buffer := make([]byte, 64) // Adjust size as needed
+	buffer := make([]byte, 512) // Adjust size as needed
 	n, err := t.port.Read(buffer)
 	if err != nil {
 		return nil, err
