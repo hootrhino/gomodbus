@@ -620,9 +620,10 @@ func (h *ModbusHandler) sendAndReceive(slaveID uint8, reqPDU []byte) ([]byte, er
 
 	// Send the request PDU
 	var err error
-	if h.mode == "RTU" {
+	switch h.mode {
+	case "RTU":
 		err = h.rtuTransporter.Send(slaveID, reqPDU) // Assumes Transporter.Send adds SlaveID and CRC
-	} else if h.mode == "TCP" {
+	case "TCP":
 		err = h.tcpTransporter.Send(h.transmissionID, slaveID, reqPDU) // Assumes Transporter.Send adds SlaveID and CRC
 	}
 	if err != nil {
@@ -641,10 +642,11 @@ func (h *ModbusHandler) sendAndReceive(slaveID uint8, reqPDU []byte) ([]byte, er
 	// var transactionID uint16
 	var respSlaveID uint8
 	var respPDU []byte
-	if h.mode == "RTU" {
+	switch h.mode {
+	case "RTU":
 		respSlaveID, respPDU, err = h.rtuTransporter.Receive()
 
-	} else if h.mode == "TCP" {
+	case "TCP":
 		_, respSlaveID, respPDU, err = h.tcpTransporter.Receive()
 	}
 	if err != nil {

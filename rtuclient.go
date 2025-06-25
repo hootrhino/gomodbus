@@ -197,7 +197,8 @@ func (mb *rtuSerialTransporter) Send(aduRequest []byte) (aduResponse []byte, err
 		return
 	}
 	//if the function is correct
-	if data[1] == function {
+	switch data[1] {
+	case function:
 		//we read the rest of the bytes
 		if n < bytesToRead {
 			if bytesToRead > rtuMinSize && bytesToRead <= rtuMaxSize {
@@ -207,7 +208,7 @@ func (mb *rtuSerialTransporter) Send(aduRequest []byte) (aduResponse []byte, err
 				}
 			}
 		}
-	} else if data[1] == functionFail {
+	case functionFail:
 		//for error we need to read 5 bytes
 		if n < rtuExceptionSize {
 			n1, err = io.ReadFull(mb.port, data[n:rtuExceptionSize])
