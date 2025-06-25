@@ -29,18 +29,15 @@ type DeviceRegister struct {
 
 // DecodeValue converts the raw bytes in the register to a typed value based on the DataType
 func (r DeviceRegister) DecodeValue() (DecodedValue, error) {
-	// Check if we have enough bytes for the data type
 	requiredBytes, err := getRequiredBytes(r.DataType)
 	if err != nil {
 		return DecodedValue{Raw: r.Value}, err
 	}
-
-	if len(r.Value) < requiredBytes && r.DataType != "string" {
+	// For non-string, check length before reorder
+	if r.DataType != "string" && len(r.Value) < requiredBytes {
 		return DecodedValue{Raw: r.Value}, fmt.Errorf("not enough bytes for data type %s: have %d, need %d",
 			r.DataType, len(r.Value), requiredBytes)
 	}
-
-	// Apply byte reordering
 	bytes := reorderBytes(r.Value, r.DataOrder)
 	res := DecodedValue{Raw: bytes, Type: r.DataType}
 
@@ -49,78 +46,64 @@ func (r DeviceRegister) DecodeValue() (DecodedValue, error) {
 		if len(bytes) < 2 {
 			return res, fmt.Errorf("not enough bytes for bitfield: need at least 2")
 		}
-		uint16Val := binary.BigEndian.Uint16(bytes[:2])
-		uint16Val = uint16Val & r.BitMask
-		res.AsType = uint16Val
-		res.Float64 = float64(uint16Val) * r.Weight
+		val := binary.BigEndian.Uint16(bytes[:2]) & r.BitMask
+		res.AsType = val
+		res.Float64 = float64(val) * r.Weight
 	case "bool":
 		if len(bytes) < 2 {
 			return res, fmt.Errorf("not enough bytes for bool: need at least 2")
 		}
-		uint16Val := binary.BigEndian.Uint16(bytes[:2])
-		res.AsType = CheckBit(uint16Val, r.BitPosition)
-		if res.AsType.(bool) {
-			res.Float64 = 1.0
-		} else {
+		val := binary.BigEndian.Uint16(bytes[:2])
+		b := CheckBit(val, r.BitPosition)
+		res.AsType = b
+		res.Float64 = 1.0
+		if !b {
 			res.Float64 = 0.0
 		}
-	case "byte":
+	case "byte", "uint8":
+		if len(bytes) < 1 {
+			return res, fmt.Errorf("not enough bytes for %s: need at least 1", r.DataType)
+		}
 		res.AsType = bytes[0]
-		res.Float64 = float64(bytes[0])
-	case "uint8":
-		res.AsType = uint8(bytes[0])
-		res.Float64 = float64(res.AsType.(uint8)) * r.Weight
+		res.Float64 = float64(bytes[0]) * r.Weight
 	case "int8":
+		if len(bytes) < 1 {
+			return res, fmt.Errorf("not enough bytes for int8: need at least 1")
+		}
 		res.AsType = int8(bytes[0])
 		res.Float64 = float64(res.AsType.(int8)) * r.Weight
 	case "uint16":
-		if len(bytes) < 2 {
-			return res, fmt.Errorf("not enough bytes for uint16: need at least 2")
-		}
-		res.AsType = binary.BigEndian.Uint16(bytes[:2])
-		res.Float64 = float64(res.AsType.(uint16)) * r.Weight
+		val := binary.BigEndian.Uint16(bytes[:2])
+		res.AsType = val
+		res.Float64 = float64(val) * r.Weight
 	case "int16":
-		if len(bytes) < 2 {
-			return res, fmt.Errorf("not enough bytes for int16: need at least 2")
-		}
-		res.AsType = int16(binary.BigEndian.Uint16(bytes[:2]))
-		res.Float64 = float64(res.AsType.(int16)) * r.Weight
+		val := int16(binary.BigEndian.Uint16(bytes[:2]))
+		res.AsType = val
+		res.Float64 = float64(val) * r.Weight
 	case "uint32":
-		if len(bytes) < 4 {
-			return res, fmt.Errorf("not enough bytes for uint32: need at least 4")
-		}
-		res.AsType = binary.BigEndian.Uint32(bytes[:4])
-		res.Float64 = float64(res.AsType.(uint32)) * r.Weight
+		val := binary.BigEndian.Uint32(bytes[:4])
+		res.AsType = val
+		res.Float64 = float64(val) * r.Weight
 	case "int32":
-		if len(bytes) < 4 {
-			return res, fmt.Errorf("not enough bytes for int32: need at least 4")
-		}
-		res.AsType = int32(binary.BigEndian.Uint32(bytes[:4]))
-		res.Float64 = float64(res.AsType.(int32)) * r.Weight
+		val := int32(binary.BigEndian.Uint32(bytes[:4]))
+		res.AsType = val
+		res.Float64 = float64(val) * r.Weight
 	case "float32":
-		if len(bytes) < 4 {
-			return res, fmt.Errorf("not enough bytes for float32: need at least 4")
-		}
 		bits := binary.BigEndian.Uint32(bytes[:4])
 		v := float32FromBits(bits)
 		res.AsType = v
 		res.Float64 = float64(v) * r.Weight
 	case "float64":
-		if len(bytes) < 8 {
-			return res, fmt.Errorf("not enough bytes for float64: need at least 8")
-		}
 		bits := binary.BigEndian.Uint64(bytes[:8])
 		v := float64FromBits(bits)
 		res.AsType = v
 		res.Float64 = v * r.Weight
 	case "string":
-		// Parse the entire byte slice as a string
 		res.AsType = string(bytes)
-		res.Float64 = 0 // Not applicable for strings
+		res.Float64 = 0
 	default:
 		return res, fmt.Errorf("unsupported data type: %s", r.DataType)
 	}
-
 	return res, nil
 }
 

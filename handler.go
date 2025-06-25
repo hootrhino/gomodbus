@@ -43,34 +43,6 @@ func getExceptionMessage(exceptionCode uint8) string {
 	}
 }
 
-// CRC16 calculates the Modbus CRC16 checksum.
-func CRC16(data []byte) uint16 {
-	crc := uint16(0xFFFF)
-	for _, b := range data {
-		crc ^= uint16(b)
-		for i := 0; i < 8; i++ {
-			if (crc & 0x0001) != 0 {
-				crc >>= 1
-				crc ^= 0xA001
-			} else {
-				crc >>= 1
-			}
-		}
-	}
-	return ((crc & 0xFF) << 8) | ((crc >> 8) & 0xFF)
-}
-
-// DefaultLogger is a simple logger that implements the io.Writer interface.
-type DefaultLogger struct {
-}
-
-// Write implements the io.Writer interface for DefaultLogger.
-func (l *DefaultLogger) Write(p []byte) (n int, err error) {
-	timeStr := time.Now().Format("2006-01-02 15:04:05")
-	fmt.Printf("[%s] %s\n", timeStr, string(p))
-	return len(p), nil
-}
-
 // Standard Response PDU Lengths (Including Function Code, Excluding Slave ID and CRC)
 const (
 	RespPDULenWriteSingleCoil        = 1 + 2 + 2 // FuncCode (1) + Address (2) + Value (2)
@@ -83,12 +55,13 @@ const (
 
 // ModbusHandler implements the ModbusApi interface for handling Modbus requests.
 type ModbusHandler struct {
-	logger          io.Writer       // Logger for debug output
-	rtuTransporter  *RTUTransporter // New field for RTU transporter
-	tcpTransporter  *TCPTransporter // New field for TCP transporter
-	transmissionID  uint16          // Track the current transaction ID
-	mode            string          // "RTU" or "TCP"
-	lastModbusError *ModbusError    // Cache the last Modbus error
+	logger                io.Writer              // Logger for debug output
+	rtuTransporter        *RTUTransporter        // New field for RTU transporter
+	tcpTransporter        *TCPTransporter        // New field for TCP transporter
+	rtuOverTCPTransporter *RtuOverTCPTransporter // New field for RTU over TCP transporter
+	transmissionID        uint16                 // Track the current transaction ID
+	mode                  string                 // "RTU" or "TCP"
+	lastModbusError       *ModbusError           // Cache the last Modbus error
 }
 
 // GetLastModbusError returns the last cached ModbusError.
@@ -113,16 +86,24 @@ func (h *ModbusHandler) GetMode() string {
 // It returns an instance implementing the ModbusApi interface.
 func NewModbusRTUHandler(port io.ReadWriteCloser, timeout time.Duration) ModbusApi {
 	return &ModbusHandler{
-		logger:         &DefaultLogger{},
+		logger:         &SimpleLogger{},
 		mode:           "RTU",
 		rtuTransporter: NewRTUTransporter(port, timeout),
 	}
 }
 func NewModbusTCPHandler(conn net.Conn, timeout time.Duration) ModbusApi {
 	return &ModbusHandler{
-		logger:         &DefaultLogger{},
+		logger:         &SimpleLogger{},
 		mode:           "TCP",
 		tcpTransporter: NewTCPTransporter(conn, timeout, nil),
+	}
+}
+
+func NewRtuOverTCPHandler(conn net.Conn, timeout time.Duration) ModbusApi {
+	return &ModbusHandler{
+		logger:                &SimpleLogger{},
+		mode:                  "RTU_OVER_TCP",
+		rtuOverTCPTransporter: NewRtuOverTCPTransporter(conn, timeout),
 	}
 }
 
@@ -160,6 +141,24 @@ func (h *ModbusHandler) ReadRawData(reqPDU []byte) ([]byte, error) {
 		}
 		// Read the response PDU from the TCP transporter
 		respPDU, err := h.tcpTransporter.ReadRaw()
+		if err != nil {
+			if h.logger != nil {
+				fmt.Fprintf(h.logger, "modbus: Error reading raw data: %v", err)
+			}
+			return nil, fmt.Errorf("modbus: failed to read raw data: %w", err)
+		}
+		return respPDU, nil
+	}
+	if h.mode == "RTU_OVER_TCP" && h.rtuOverTCPTransporter != nil {
+		err := h.rtuOverTCPTransporter.WriteRaw(reqPDU)
+		if err != nil {
+			if h.logger != nil {
+				fmt.Fprintf(h.logger, "modbus: Error writing raw data: %v", err)
+			}
+			return nil, fmt.Errorf("modbus: failed to write raw data: %w", err)
+		}
+		// Read the response PDU from the RTU over TCP transporter
+		respPDU, err := h.rtuOverTCPTransporter.ReadRaw()
 		if err != nil {
 			if h.logger != nil {
 				fmt.Fprintf(h.logger, "modbus: Error reading raw data: %v", err)
@@ -669,6 +668,9 @@ func (h *ModbusHandler) sendAndReceive(slaveID uint8, reqPDU []byte) ([]byte, er
 		if h.mode == "RTU" {
 			fmt.Fprintf(h.logger, "modbus rtu: Sending request to slave %d, func %02X, PDU data: % X", slaveID, funcCode, pduDataLog)
 		}
+		if h.mode == "RTU_OVER_TCP" && h.rtuOverTCPTransporter != nil {
+			fmt.Fprintf(h.logger, "modbus rtu over tcp: Sending request to slave %d, func %02X, PDU data: % X", slaveID, funcCode, pduDataLog)
+		}
 	}
 
 	// Send the request PDU
@@ -678,16 +680,23 @@ func (h *ModbusHandler) sendAndReceive(slaveID uint8, reqPDU []byte) ([]byte, er
 		err = h.rtuTransporter.Send(slaveID, reqPDU) // Assumes Transporter.Send adds SlaveID and CRC
 	case "TCP":
 		err = h.tcpTransporter.Send(h.transmissionID, slaveID, reqPDU) // Assumes Transporter.Send adds SlaveID and CRC
+	case "RTU_OVER_TCP":
+		if h.rtuOverTCPTransporter != nil {
+			err = h.rtuOverTCPTransporter.Send(slaveID, reqPDU) // Assumes Transporter.Send adds SlaveID and CRC
+		}
 	}
 	if err != nil {
 		// Log and wrap the transport error
 		if h.logger != nil {
-			if h.mode == "TCP" {
+			if h.mode == "TCP" && h.tcpTransporter != nil {
 				RemoteAddr := h.tcpTransporter.conn.RemoteAddr().String()
 				fmt.Fprintf(h.logger, "modbus tcp: Error sending request to slave %d: %v, RemoteAddr: %s", slaveID, err, RemoteAddr)
 			}
-			if h.mode == "RTU" {
+			if h.mode == "RTU" && h.rtuTransporter != nil {
 				fmt.Fprintf(h.logger, "modbus rtu: Error sending request to slave %d: %v", slaveID, err)
+			}
+			if h.mode == "RTU_OVER_TCP" && h.rtuOverTCPTransporter != nil {
+				fmt.Fprintf(h.logger, "modbus rtu over tcp: Error sending request to slave %d: %v", slaveID, err)
 			}
 		}
 		return nil, fmt.Errorf("modbus: rtu transport send failed (slave %d): %w", slaveID, err)
@@ -697,19 +706,38 @@ func (h *ModbusHandler) sendAndReceive(slaveID uint8, reqPDU []byte) ([]byte, er
 	var respPDU []byte
 	switch h.mode {
 	case "RTU":
-		respSlaveID, respPDU, err = h.rtuTransporter.Receive()
+		if h.rtuTransporter != nil {
+			respSlaveID, respPDU, err = h.rtuTransporter.Receive()
+		} else {
+			err = fmt.Errorf("modbus: rtu transporter is not initialized")
+		}
 	case "TCP":
-		_, respSlaveID, respPDU, err = h.tcpTransporter.Receive()
+		if h.tcpTransporter != nil {
+			_, respSlaveID, respPDU, err = h.tcpTransporter.Receive()
+		} else {
+			err = fmt.Errorf("modbus: tcp transporter is not initialized")
+		}
+	case "RTU_OVER_TCP":
+		if h.rtuOverTCPTransporter != nil {
+			respSlaveID, respPDU, err = h.rtuOverTCPTransporter.Receive()
+		} else {
+			err = fmt.Errorf("modbus: rtu over tcp transporter is not initialized")
+		}
+	default:
+		return nil, fmt.Errorf("modbus: unsupported mode '%s' for sendAndReceive", h.mode)
 	}
 	if err != nil {
 		// Log and wrap the transport error
 		if h.logger != nil {
-			if h.mode == "TCP" {
+			if h.mode == "TCP" && h.tcpTransporter != nil {
 				RemoteAddr := h.tcpTransporter.conn.RemoteAddr().String()
 				fmt.Fprintf(h.logger, "modbus tcp: Error receiving response from slave %d: %v, RemoteAddr: %s", slaveID, err, RemoteAddr)
 			}
-			if h.mode == "RTU" {
+			if h.mode == "RTU" && h.rtuTransporter != nil {
 				fmt.Fprintf(h.logger, "modbus rtu: Error receiving response from slave %d: %v", slaveID, err)
+			}
+			if h.mode == "RTU_OVER_TCP" && h.rtuOverTCPTransporter != nil {
+				fmt.Fprintf(h.logger, "modbus rtu over tcp: Error receiving response from slave %d: %v", slaveID, err)
 			}
 		}
 		return nil, fmt.Errorf("modbus: rtu transport receive failed (slave %d): %w", slaveID, err)
@@ -722,12 +750,15 @@ func (h *ModbusHandler) sendAndReceive(slaveID uint8, reqPDU []byte) ([]byte, er
 	if respSlaveID != slaveID {
 		err = fmt.Errorf("modbus: response slave ID mismatch: expected %d, got %d", slaveID, respSlaveID)
 		if h.logger != nil {
-			if h.mode == "TCP" {
+			if h.mode == "TCP" && h.tcpTransporter != nil {
 				RemoteAddr := h.tcpTransporter.conn.RemoteAddr().String()
 				fmt.Fprintf(h.logger, "modbus tcp: Error response slave ID mismatch (slave %d): %v, RemoteAddr: %s", slaveID, err, RemoteAddr)
 			}
-			if h.mode == "RTU" {
+			if h.mode == "RTU" && h.rtuTransporter != nil {
 				fmt.Fprintf(h.logger, "modbus rtu: Error response slave ID mismatch (slave %d): %v", slaveID, err)
+			}
+			if h.mode == "RTU_OVER_TCP" && h.rtuOverTCPTransporter != nil {
+				fmt.Fprintf(h.logger, "modbus rtu over tcp: Error response slave ID mismatch (slave %d): %v", slaveID, err)
 			}
 		}
 		return nil, err
@@ -745,12 +776,15 @@ func (h *ModbusHandler) sendAndReceive(slaveID uint8, reqPDU []byte) ([]byte, er
 		exceptionMsg := getExceptionMessage(exceptionCode) // Assumes getExceptionMessage exists
 		err = fmt.Errorf("modbus: received exception response (slave %d): code 0x%02X - %s", slaveID, exceptionCode, exceptionMsg)
 		if h.logger != nil {
-			if h.mode == "TCP" {
+			if h.mode == "TCP" && h.tcpTransporter != nil {
 				RemoteAddr := h.tcpTransporter.conn.RemoteAddr().String()
 				fmt.Fprintf(h.logger, "modbus tcp: Error received exception response (slave %d): %v, RemoteAddr: %s", slaveID, err, RemoteAddr)
 			}
-			if h.mode == "RTU" {
+			if h.mode == "RTU" && h.rtuTransporter != nil {
 				fmt.Fprintf(h.logger, "modbus rtu: Error received exception response (slave %d): %v", slaveID, err)
+			}
+			if h.mode == "RTU_OVER_TCP" && h.rtuOverTCPTransporter != nil {
+				fmt.Fprintf(h.logger, "modbus rtu over tcp: Error received exception response (slave %d): %v", slaveID, err)
 			}
 		}
 		return nil, err
