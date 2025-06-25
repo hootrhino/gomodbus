@@ -87,14 +87,7 @@ func (m *RegisterManager) LoadRegisters(registers []DeviceRegister) error {
 		}
 		tagMap[register.Tag] = true
 	}
-	// Filter out virtual registers
-	tempRegisters := make([]DeviceRegister, 0, len(registers))
-	for _, register := range registers {
-		if register.Type != "virtual" {
-			tempRegisters = append(tempRegisters, register)
-		}
-	}
-	m.groupedRegisters = m.GroupDeviceRegister(tempRegisters)
+	m.groupedRegisters = m.GroupDeviceRegister(registers)
 	return nil
 }
 

@@ -8,19 +8,11 @@ import (
 	"unsafe"
 )
 
-const (
-	// Register types
-	RegisterTypeMetric  = "metric"  // Metric register type
-	RegisterTypeStatic  = "static"  // Static register type
-	RegisterTypeVirtual = "virtual" // Virtual register type
-)
-
 // DeviceRegister represents a Modbus register with metadata
 type DeviceRegister struct {
 	UUID         string  `json:"uuid"`         // Unique identifier for the register
 	Tag          string  `json:"tag"`          // A unique identifier or label for the register
 	Alias        string  `json:"alias"`        // A human-readable name or alias for the register
-	Type         string  `json:"type"`         // Type of the register (e.g., Metric,Virtual,Static)
 	SlaverId     uint8   `json:"slaverId"`     // ID of the Modbus slave device
 	Function     uint8   `json:"function"`     // Modbus function code (e.g., 3 for Read Holding Registers)
 	ReadAddress  uint16  `json:"readAddress"`  // Address of the register in the Modbus device
