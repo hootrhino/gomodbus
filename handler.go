@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"time"
 )
 
@@ -86,14 +87,14 @@ func (h *ModbusHandler) GetMode() string {
 // It returns an instance implementing the ModbusApi interface.
 func NewModbusRTUHandler(port io.ReadWriteCloser, timeout time.Duration) ModbusApi {
 	return &ModbusHandler{
-		logger:         &SimpleLogger{},
+		logger:         NewSimpleLogger(os.Stdout, LevelInfo, "modbus: RTU"),
 		mode:           "RTU",
 		rtuTransporter: NewRTUTransporter(port, timeout),
 	}
 }
 func NewModbusTCPHandler(conn net.Conn, timeout time.Duration) ModbusApi {
 	return &ModbusHandler{
-		logger:         &SimpleLogger{},
+		logger:         NewSimpleLogger(os.Stdout, LevelInfo, "modbus: TCP"),
 		mode:           "TCP",
 		tcpTransporter: NewTCPTransporter(conn, timeout, nil),
 	}
@@ -101,7 +102,7 @@ func NewModbusTCPHandler(conn net.Conn, timeout time.Duration) ModbusApi {
 
 func NewRtuOverTCPHandler(conn net.Conn, timeout time.Duration) ModbusApi {
 	return &ModbusHandler{
-		logger:                &SimpleLogger{},
+		logger:                NewSimpleLogger(os.Stdout, LevelInfo, "modbus: RTU_OVER_TCP"),
 		mode:                  "RTU_OVER_TCP",
 		rtuOverTCPTransporter: NewRtuOverTCPTransporter(conn, timeout),
 	}
@@ -740,7 +741,7 @@ func (h *ModbusHandler) sendAndReceive(slaveID uint8, reqPDU []byte) ([]byte, er
 				fmt.Fprintf(h.logger, "modbus rtu over tcp: Error receiving response from slave %d: %v", slaveID, err)
 			}
 		}
-		return nil, fmt.Errorf("modbus: rtu transport receive failed (slave %d): %w", slaveID, err)
+		return nil, fmt.Errorf("modbus: %s transport receive failed (slave %d): %w", h.mode, slaveID, err)
 	}
 	// Log the received response details (optional)
 	if h.logger != nil {
