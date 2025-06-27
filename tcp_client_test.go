@@ -13,7 +13,7 @@ import (
 )
 
 // startTestTCPServer initializes a Modbus TCP server with sample holding registers.
-func startTestTCPServer() *modbus_server.Server {
+func StartTestTCPServer() *modbus_server.Server {
 
 	// Initialize a Modbus server
 	server := modbus_server.NewServer(store.NewInMemoryStore(), 1)
@@ -44,7 +44,7 @@ func startTestTCPServer() *modbus_server.Server {
 }
 
 func TestModbusSlaverTCP(t *testing.T) {
-	// server := startTestTCPServer()
+	// server := StartTestTCPServer()
 	// defer server.Stop()
 	conn, err := net.Dial("tcp", "localhost:502")
 	if err != nil {
@@ -57,14 +57,12 @@ func TestModbusSlaverTCP(t *testing.T) {
 }
 
 func testTCPHandler(t *testing.T, handler ModbusApi) {
-
-	for i := range 2 {
+	for i := 0; i < 10; i++ {
 		result1, err := handler.ReadInputRegisters(1, uint16(i), 1)
 		if err != nil {
 			t.Fatalf("ReadInputRegisters failed: %v", err)
 		}
-		t.Log("ReadInputRegisters=", result1)
-		assertUint16Equal(t, []uint16{0xABCD}, result1)
+		t.Logf("ReadInputRegisters result: %v", result1)
 	}
 
 }

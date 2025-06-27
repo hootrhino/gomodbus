@@ -680,7 +680,7 @@ func (h *ModbusHandler) sendAndReceive(slaveID uint8, reqPDU []byte) ([]byte, er
 	case "RTU":
 		err = h.rtuTransporter.Send(slaveID, reqPDU) // Assumes Transporter.Send adds SlaveID and CRC
 	case "TCP":
-		err = h.tcpTransporter.Send(h.transmissionID, slaveID, reqPDU) // Assumes Transporter.Send adds SlaveID and CRC
+		_, err = h.tcpTransporter.Send(slaveID, reqPDU) // Assumes Transporter.Send adds SlaveID and CRC
 	case "RTU_OVER_TCP":
 		if h.rtuOverTCPTransporter != nil {
 			err = h.rtuOverTCPTransporter.Send(slaveID, reqPDU) // Assumes Transporter.Send adds SlaveID and CRC
