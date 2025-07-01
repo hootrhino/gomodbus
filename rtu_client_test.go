@@ -25,5 +25,11 @@ func TestModbusSlaverRTU(t *testing.T) {
 }
 
 func testRTUHandler(t *testing.T, handler ModbusApi) {
+	// Read holding registers
+	registers, err := handler.ReadHoldingRegisters(1, 0, 10)
+	if err != nil {
+		t.Fatalf("Failed to read holding registers: %v", err)
+	}
+	t.Logf("Holding Registers: %v", registers)
 
 }

@@ -207,7 +207,7 @@ func (t *RTUTransporter) Receive() (uint8, []byte, error) {
 	// Verify CRC
 	frameLen := len(frame)
 	receivedCRC := uint16(frame[frameLen-2]) | (uint16(frame[frameLen-1]) << 8)
-	calculatedCRC := CRC16(frame[:frameLen-2])
+	calculatedCRC := CRCBigEndian(frame[:frameLen-2])
 
 	if receivedCRC != calculatedCRC {
 		return 0, nil, fmt.Errorf("CRC mismatch: received 0x%04X, calculated 0x%04X, frame: % X",
