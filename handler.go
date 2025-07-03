@@ -60,8 +60,7 @@ type ModbusHandler struct {
 	rtuTransporter        *RTUTransporter        // New field for RTU transporter
 	tcpTransporter        *TCPTransporter        // New field for TCP transporter
 	rtuOverTCPTransporter *RtuOverTCPTransporter // New field for RTU over TCP transporter
-	transmissionID        uint16                 // Track the current transaction ID
-	mode                  string                 // "RTU" or "TCP"
+	mode                  string                 // "RTU" or "TCP" or "RTU_OVER_TCP"
 	lastModbusError       *ModbusError           // Cache the last Modbus error
 }
 
@@ -92,6 +91,8 @@ func NewModbusRTUHandler(port io.ReadWriteCloser, timeout time.Duration) ModbusA
 		rtuTransporter: NewRTUTransporter(port, timeout),
 	}
 }
+
+// NewModbusTCPHandler creates a new ModbusHandler with the given TCP connection and timeout.
 func NewModbusTCPHandler(conn net.Conn, timeout time.Duration) ModbusApi {
 	return &ModbusHandler{
 		logger:         NewSimpleLogger(os.Stdout, LevelInfo, "modbus: TCP"),
@@ -100,6 +101,7 @@ func NewModbusTCPHandler(conn net.Conn, timeout time.Duration) ModbusApi {
 	}
 }
 
+// NewRtuOverTCPHandler creates a new ModbusHandler for RTU over TCP with the given connection and timeout.
 func NewRtuOverTCPHandler(conn net.Conn, timeout time.Duration) ModbusApi {
 	return &ModbusHandler{
 		logger:                NewSimpleLogger(os.Stdout, LevelInfo, "modbus: RTU_OVER_TCP"),
@@ -108,6 +110,7 @@ func NewRtuOverTCPHandler(conn net.Conn, timeout time.Duration) ModbusApi {
 	}
 }
 
+// SetLogger sets the logger for the ModbusHandler.
 func (h *ModbusHandler) SetLogger(logger io.Writer) {
 	h.logger = logger
 }
