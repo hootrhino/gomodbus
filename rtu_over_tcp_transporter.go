@@ -60,7 +60,11 @@ func (t *RtuOverTCPTransporter) Receive() (slaveID uint8, pdu []byte, err error)
 	if err != nil {
 		return 0, nil, err
 	}
-	return t.packager.Unpack(raw)
+	slaveID, pdu, err = t.packager.Unpack(raw)
+	if err != nil {
+		return 0, nil, err
+	}
+	return slaveID, pdu, nil
 }
 
 // Close closes the TCP connection.

@@ -175,11 +175,10 @@ func (t *RTUTransporter) Receive() (uint8, []byte, error) {
 		return 0, nil, fmt.Errorf("failed to read header: %v", err)
 	}
 
-	slaveID := header[0]
 	functionCode := header[1]
 
 	// Build frame starting with header
-	frame := make([]byte, 2, 256) // Pre-allocate with capacity
+	frame := make([]byte, 2, 256)
 	copy(frame, header)
 
 	// Determine payload length based on function code
@@ -204,21 +203,13 @@ func (t *RTUTransporter) Receive() (uint8, []byte, error) {
 	}
 	frame = append(frame, crcBytes...)
 
-	// Verify CRC
-	frameLen := len(frame)
-	// Standard Modbus CRC16 calculation
-	calculatedCRC := CRC16(frame[:frameLen-2]) // Exclude CRC bytes for
-	// CRC calculation
-	receivedCRC := uint16(crcBytes[0]) | (uint16(crcBytes[1]) << 8) // Convert to big-endian
-	// Check if received CRC matches calculated CRC
-	if receivedCRC != calculatedCRC {
-		return 0, nil, fmt.Errorf("CRC mismatch: received 0x%04X, calculated 0x%04X, frame: % X",
-			receivedCRC, calculatedCRC, frame)
+	// Use RTUPackager to unpack and verify CRC
+	unpackedSlaveID, pdu, err := t.packager.Unpack(frame)
+	if err != nil {
+		return 0, nil, fmt.Errorf("failed to unpack frame: %v", err)
 	}
 
-	// Extract PDU (frame without slave ID and CRC)
-	pdu := frame[1 : frameLen-2]
-	return slaveID, pdu, nil
+	return unpackedSlaveID, pdu, nil
 }
 
 // getPayloadLength determines the expected payload length based on function code
