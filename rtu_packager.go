@@ -18,7 +18,7 @@ func NewRTUPackager() *RTUPackager {
 }
 
 // Pack packs a Modbus RTU PDU into a complete RTU frame
-// The RTU frame format is: Slave Address (1 byte) + Function Code (1 byte) + Data (variable length) + CRC (2 bytes, big-endian)
+// The RTU frame format is: Slave Address (1 byte) + Function Code (1 byte) + Data (variable length) + CRC (2 bytes, little-endian)
 func (p *RTUPackager) Pack(slaveID uint8, pdu []byte) ([]byte, error) {
 	if len(pdu) == 0 {
 		return nil, fmt.Errorf("PDU cannot be empty")
@@ -38,9 +38,9 @@ func (p *RTUPackager) Pack(slaveID uint8, pdu []byte) ([]byte, error) {
 	// Calculate CRC for the frame without CRC bytes
 	crc := CRC16(frame[:frameLength-2])
 
-	// Write CRC as big-endian (high byte first, then low byte)
-	frame[frameLength-2] = byte((crc >> 8) & 0xFF) // CRC high byte
-	frame[frameLength-1] = byte(crc & 0xFF)        // CRC low byte
+	// Write CRC as little-endian (low byte first, then high byte)
+	frame[frameLength-2] = byte(crc & 0xFF)        // CRC low byte
+	frame[frameLength-1] = byte((crc >> 8) & 0xFF) // CRC high byte
 
 	// Return a copy to avoid buffer reuse issues
 	result := make([]byte, frameLength)
@@ -48,17 +48,17 @@ func (p *RTUPackager) Pack(slaveID uint8, pdu []byte) ([]byte, error) {
 	return result, nil
 }
 
-// Unpack unpacks a Modbus RTU frame into Slave Address and PDU with CRC verification (big-endian CRC)
+// Unpack unpacks a Modbus RTU frame into Slave Address and PDU with CRC verification (little-endian CRC)
 func (p *RTUPackager) Unpack(frame []byte) (slaveID uint8, pdu []byte, err error) {
 	// Minimum RTU frame: Slave ID (1) + Function Code (1) + CRC (2) = 4 bytes
 	if len(frame) < 4 {
 		return 0, nil, fmt.Errorf("invalid RTU frame length: %d bytes, minimum is 4", len(frame))
 	}
 
-	// Extract CRC from frame (big-endian)
+	// Extract CRC from frame (little-endian)
 	frameLen := len(frame)
-	receivedCRC := (uint16(frame[frameLen-2]) << 8) | uint16(frame[frameLen-1])
-
+	// Read CRC as little-endian (low byte first, then high byte)
+	receivedCRC := uint16(frame[frameLen-2]) | (uint16(frame[frameLen-1]) << 8)
 	// Calculate CRC for frame without CRC bytes
 	calculatedCRC := CRC16(frame[:frameLen-2])
 

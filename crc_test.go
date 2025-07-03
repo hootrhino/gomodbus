@@ -7,9 +7,12 @@ func TestCRC16(t *testing.T) {
 		data     []byte
 		expected uint16
 	}{
-		{data: []byte{0x01, 0x03, 0x00, 0x0A, 0x00, 0x01}, expected: 0xa408},
-		{data: []byte{0x01, 0x04, 0x00, 0x01, 0x00, 0x01}, expected: 0x600a},
-		{data: []byte{0x10, 0x06, 0x00, 0x01, 0x00, 0x01, 0x01, 0x08}, expected: 0x4b51},
+		{data: []byte{0x01, 0x03, 0x02, 0x12, 0x34}, expected: 0x33B5},
+		{data: []byte{01, 03, 00, 00, 00, 01}, expected: 0x0A84},
+		{data: []byte{01, 03, 14, 12, 34, 12, 34, 12, 34,
+			12, 34, 12, 34, 12, 34, 12, 34, 12, 34, 12, 34, 12, 34}, expected: 0x0C7D},
+		{data: []byte{}, expected: 0xFFFF},     // Empty data, CRC should be initial value
+		{data: []byte{0x00}, expected: 0x40BF}, // Single zero byte
 	}
 
 	for _, tc := range testCases {

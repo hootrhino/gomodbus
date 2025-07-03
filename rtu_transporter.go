@@ -206,9 +206,11 @@ func (t *RTUTransporter) Receive() (uint8, []byte, error) {
 
 	// Verify CRC
 	frameLen := len(frame)
-	receivedCRC := uint16(frame[frameLen-2]) | (uint16(frame[frameLen-1]) << 8)
-	calculatedCRC := CRCBigEndian(frame[:frameLen-2])
-
+	// Standard Modbus CRC16 calculation
+	calculatedCRC := CRC16(frame[:frameLen-2]) // Exclude CRC bytes for
+	// CRC calculation
+	receivedCRC := uint16(crcBytes[0]) | (uint16(crcBytes[1]) << 8) // Convert to big-endian
+	// Check if received CRC matches calculated CRC
 	if receivedCRC != calculatedCRC {
 		return 0, nil, fmt.Errorf("CRC mismatch: received 0x%04X, calculated 0x%04X, frame: % X",
 			receivedCRC, calculatedCRC, frame)
@@ -229,7 +231,7 @@ func (t *RTUTransporter) getPayloadLength(functionCode uint8) (int, error) {
 		if err := t.readWithTimeout(countByte, 1); err != nil {
 			return 0, fmt.Errorf("failed to read byte count: %v", err)
 		}
-		return int(countByte[0]) + 1, nil // +1 for the count byte itself
+		return int(countByte[0]), nil // +1 for the count byte itself
 
 	case FuncCodeWriteSingleCoil, FuncCodeWriteSingleRegister:
 		return 4, nil // Address (2) + Value (2)
