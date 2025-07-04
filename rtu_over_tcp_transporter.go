@@ -10,13 +10,15 @@ type RtuOverTCPTransporter struct {
 	conn     net.Conn
 	timeout  time.Duration
 	packager *RTUPackager
+	config   TCPTransporterConfig
 }
 
 // NewRtuOverTCPTransporter creates a new RtuOverTCPTransporter using RTUPackager.
-func NewRtuOverTCPTransporter(conn net.Conn, timeout time.Duration) *RtuOverTCPTransporter {
+func NewRtuOverTCPTransporter(conn net.Conn, config TCPTransporterConfig) *RtuOverTCPTransporter {
 	return &RtuOverTCPTransporter{
 		conn:     conn,
-		timeout:  timeout,
+		config:   config,
+		timeout:  config.Timeout,
 		packager: NewRTUPackager(),
 	}
 }

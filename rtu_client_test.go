@@ -9,7 +9,7 @@ import (
 
 func TestModbusSlaverRTU(t *testing.T) {
 	port, err := serial.Open(&serial.Config{
-		Address:  "COM3",
+		Address:  "COM6",
 		BaudRate: 9600,
 		DataBits: 8,
 		StopBits: 1,
@@ -20,13 +20,19 @@ func TestModbusSlaverRTU(t *testing.T) {
 		t.Fatalf("Failed to open serial port: %v", err)
 	}
 	defer port.Close()
-	handler := NewModbusRTUHandler(port, 1*time.Second)
+	config := RTUConfig{
+		Timeout:       1 * time.Second,
+		InterCharTime: 3 * time.Millisecond,
+		FrameTimeout:  100 * time.Millisecond,
+		MaxFrameSize:  256,
+	}
+	handler := NewModbusRTUHandler(port, config)
 	testRTUHandler(t, handler)
 }
 
 func testRTUHandler(t *testing.T, handler ModbusApi) {
 	// Read holding registers
-	registers, err := handler.ReadHoldingRegisters(1, 0, 1)
+	registers, err := handler.ReadHoldingRegisters(1, 0, 10)
 	if err != nil {
 		t.Fatalf("Failed to read holding registers: %v", err)
 	}

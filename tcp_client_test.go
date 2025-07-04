@@ -59,7 +59,10 @@ func TestModbusSlaverTCP(t *testing.T) {
 		t.Fatalf("Failed to connect to server: %v", err)
 	}
 	defer conn.Close()
-	handler := NewModbusTCPHandler(conn, 5*time.Second)
+	handler := NewModbusTCPHandler(conn, TCPTransporterConfig{
+		Timeout:    5 * time.Second,
+		RetryDelay: 200 * time.Millisecond,
+	})
 	testTCPHandler(t, handler)
 
 }
@@ -70,7 +73,7 @@ func testTCPHandler(t *testing.T, handler ModbusApi) {
 		if err != nil {
 			t.Fatalf("ReadHoldingRegisters failed: %v", err)
 		}
-		t.Logf("ReadHoldingRegisters result: %v", result1)
+		t.Logf("ReadHoldingRegisters result: %X", result1)
 		if err := AssertUint16Equal([]uint16{0xABCD}, result1); err != nil {
 			t.Fatalf("ReadHoldingRegisters result mismatch: %v", err)
 		}

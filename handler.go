@@ -6,7 +6,6 @@ import (
 	"io"
 	"net"
 	"os"
-	"time"
 )
 
 // buildRequestPDU constructs a Modbus request PDU.
@@ -84,29 +83,29 @@ func (h *ModbusHandler) GetMode() string {
 
 // NewModbusHandler creates a new ModbusHandler with the given serial port and timeout.
 // It returns an instance implementing the ModbusApi interface.
-func NewModbusRTUHandler(port io.ReadWriteCloser, timeout time.Duration) ModbusApi {
+func NewModbusRTUHandler(port io.ReadWriteCloser, config RTUConfig) ModbusApi {
 	return &ModbusHandler{
 		logger:         NewSimpleLogger(os.Stdout, LevelInfo, "modbus: RTU"),
 		mode:           "RTU",
-		rtuTransporter: NewRTUTransporter(port, timeout),
+		rtuTransporter: NewRTUTransporter(port, config),
 	}
 }
 
 // NewModbusTCPHandler creates a new ModbusHandler with the given TCP connection and timeout.
-func NewModbusTCPHandler(conn net.Conn, timeout time.Duration) ModbusApi {
+func NewModbusTCPHandler(conn net.Conn, config TCPTransporterConfig) ModbusApi {
 	return &ModbusHandler{
 		logger:         NewSimpleLogger(os.Stdout, LevelInfo, "modbus: TCP"),
 		mode:           "TCP",
-		tcpTransporter: NewTCPTransporter(conn, timeout, nil),
+		tcpTransporter: NewTCPTransporter(conn, config),
 	}
 }
 
-// NewRtuOverTCPHandler creates a new ModbusHandler for RTU over TCP with the given connection and timeout.
-func NewRtuOverTCPHandler(conn net.Conn, timeout time.Duration) ModbusApi {
+// NewModbusRtuOverTCPHandler creates a new ModbusHandler for RTU over TCP with the given connection and timeout.
+func NewRtuOverTCPHandler(conn net.Conn, config TCPTransporterConfig) ModbusApi {
 	return &ModbusHandler{
 		logger:                NewSimpleLogger(os.Stdout, LevelInfo, "modbus: RTU_OVER_TCP"),
 		mode:                  "RTU_OVER_TCP",
-		rtuOverTCPTransporter: NewRtuOverTCPTransporter(conn, timeout),
+		rtuOverTCPTransporter: NewRtuOverTCPTransporter(conn, config),
 	}
 }
 

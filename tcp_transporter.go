@@ -1,6 +1,7 @@
 package modbus
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log"
@@ -18,23 +19,129 @@ type TCPTransporter struct {
 	logger        *log.Logger
 	transactionID uint32       // Atomic counter for transaction IDs
 	mu            sync.RWMutex // Protects connection operations
-	closed        bool
+	closed        int32        // Atomic flag for closed state
+
+	// Enhanced features
+	maxRetries    int
+	retryDelay    time.Duration
+	keepAlive     bool
+	keepAliveConf *KeepAliveConfig
+
+	// Connection pooling support
+	isPooled     bool
+	poolReturnFn func()
+
+	// Statistics
+	stats *TransportStats
+
+	// Graceful shutdown support
+	shutdownCh   chan struct{}
+	shutdownOnce sync.Once
 }
 
-// NewTCPTransporter creates a new TCPTransporter with the given connection and timeout.
-func NewTCPTransporter(conn net.Conn, timeout time.Duration, logger io.Writer) *TCPTransporter {
-	var tcpLogger *log.Logger
-	if logger != nil {
-		tcpLogger = log.New(logger, "[TCP] ", log.LstdFlags|log.Lshortfile)
+// KeepAliveConfig holds TCP keep-alive configuration
+type KeepAliveConfig struct {
+	Enabled  bool
+	Idle     time.Duration
+	Interval time.Duration
+	Count    int
+}
+
+// TransportStats holds transport statistics
+type TransportStats struct {
+	BytesSent        uint64
+	BytesReceived    uint64
+	MessagesSent     uint64
+	MessagesReceived uint64
+	Errors           uint64
+	Retries          uint64
+	mu               sync.RWMutex
+}
+
+// TCPTransporterConfig holds configuration for creating a TCPTransporter
+type TCPTransporterConfig struct {
+	Timeout     time.Duration
+	MaxRetries  int
+	RetryDelay  time.Duration
+	KeepAlive   *KeepAliveConfig
+	Logger      io.Writer
+	EnableStats bool
+}
+
+// DefaultTCPTransporterConfig returns default configuration
+func DefaultTCPTransporterConfig() TCPTransporterConfig {
+	return TCPTransporterConfig{
+		Timeout:    5 * time.Second,
+		MaxRetries: 3,
+		RetryDelay: 100 * time.Millisecond,
+		KeepAlive: &KeepAliveConfig{
+			Enabled:  true,
+			Idle:     30 * time.Second,
+			Interval: 30 * time.Second,
+			Count:    3,
+		},
+		EnableStats: true,
+	}
+}
+
+// NewTCPTransporter creates a new TCPTransporter with the given connection and configuration.
+func NewTCPTransporter(conn net.Conn, config TCPTransporterConfig) *TCPTransporter {
+	if config.Timeout == 0 {
+		config.Timeout = DefaultTCPTransporterConfig().Timeout
 	}
 
-	return &TCPTransporter{
+	var tcpLogger *log.Logger
+	if config.Logger != nil {
+		tcpLogger = log.New(config.Logger, "[TCP] ", log.LstdFlags|log.Lshortfile)
+	}
+
+	transporter := &TCPTransporter{
 		conn:          conn,
-		timeout:       timeout,
+		timeout:       config.Timeout,
 		packager:      NewTCPPackager(),
 		logger:        tcpLogger,
 		transactionID: 0,
-		closed:        false,
+		maxRetries:    config.MaxRetries,
+		retryDelay:    config.RetryDelay,
+		shutdownCh:    make(chan struct{}),
+	}
+
+	// Configure keep-alive if enabled
+	if config.KeepAlive != nil && config.KeepAlive.Enabled {
+		transporter.keepAlive = true
+		transporter.keepAliveConf = config.KeepAlive
+		transporter.configureKeepAlive()
+	}
+
+	// Initialize stats if enabled
+	if config.EnableStats {
+		transporter.stats = &TransportStats{}
+	}
+
+	return transporter
+}
+
+// NewTCPTransporterSimple creates a new TCPTransporter with simple parameters (backward compatibility)
+func NewTCPTransporterSimple(conn net.Conn, timeout time.Duration, logger io.Writer) *TCPTransporter {
+	config := DefaultTCPTransporterConfig()
+	config.Timeout = timeout
+	config.Logger = logger
+	return NewTCPTransporter(conn, config)
+}
+
+// configureKeepAlive sets up TCP keep-alive parameters
+func (t *TCPTransporter) configureKeepAlive() {
+	if tcpConn, ok := t.conn.(*net.TCPConn); ok && t.keepAliveConf != nil {
+		if err := tcpConn.SetKeepAlive(t.keepAliveConf.Enabled); err != nil {
+			t.log("Failed to set keep-alive: %v", err)
+			return
+		}
+
+		if t.keepAliveConf.Enabled {
+			if err := tcpConn.SetKeepAlivePeriod(t.keepAliveConf.Idle); err != nil {
+				t.log("Failed to set keep-alive period: %v", err)
+			}
+		}
 	}
 }
 
@@ -65,17 +172,34 @@ func (t *TCPTransporter) clearDeadline() {
 	t.conn.SetDeadline(time.Time{})
 }
 
-// WriteRaw writes raw bytes directly to the connection
+// IsClosed returns whether the transporter is closed
+func (t *TCPTransporter) IsClosed() bool {
+	return atomic.LoadInt32(&t.closed) == 1
+}
+
+// WriteRaw writes raw bytes directly to the connection with enhanced error handling
 func (t *TCPTransporter) WriteRaw(data []byte) error {
+	return t.WriteRawWithContext(context.Background(), data)
+}
+
+// WriteRawWithContext writes raw bytes with context support
+func (t *TCPTransporter) WriteRawWithContext(ctx context.Context, data []byte) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	if t.closed {
+	if t.IsClosed() {
 		return fmt.Errorf("transporter is closed")
 	}
 
 	if len(data) == 0 {
 		return fmt.Errorf("no data to write")
+	}
+
+	// Check context cancellation
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
 	}
 
 	t.log("Writing raw data: %d bytes", len(data))
@@ -86,30 +210,50 @@ func (t *TCPTransporter) WriteRaw(data []byte) error {
 	}
 	defer t.clearDeadline()
 
-	// Write all data
+	// Write all data with context cancellation support
 	written := 0
 	for written < len(data) {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
 		n, err := t.conn.Write(data[written:])
 		if err != nil {
+			t.recordError()
 			return fmt.Errorf("write failed after %d bytes: %w", written, err)
 		}
 		written += n
 	}
 
+	t.recordBytesSent(uint64(written))
 	t.log("Successfully wrote %d bytes", written)
 	return nil
 }
 
-// ReadRaw reads raw bytes from the connection with proper buffering
+// ReadRaw reads raw bytes from the connection with enhanced buffering
 func (t *TCPTransporter) ReadRaw() ([]byte, error) {
+	return t.ReadRawWithContext(context.Background())
+}
+
+// ReadRawWithContext reads raw bytes with context support
+func (t *TCPTransporter) ReadRawWithContext(ctx context.Context) ([]byte, error) {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 
-	if t.closed {
+	if t.IsClosed() {
 		return nil, fmt.Errorf("transporter is closed")
 	}
 
-	// Use a larger buffer to handle maximum possible Modbus TCP frame
+	// Check context cancellation
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
+	// Use a buffer to handle maximum possible Modbus TCP frame
 	buffer := make([]byte, MaxTCPFrameLength)
 
 	t.log("Reading raw data from connection")
@@ -122,10 +266,12 @@ func (t *TCPTransporter) ReadRaw() ([]byte, error) {
 
 	n, err := t.conn.Read(buffer)
 	if err != nil {
+		t.recordError()
 		return nil, fmt.Errorf("read failed: %w", err)
 	}
 
 	data := buffer[:n]
+	t.recordBytesReceived(uint64(n))
 	t.log("Read %d bytes of raw data", n)
 
 	return data, nil
@@ -133,22 +279,39 @@ func (t *TCPTransporter) ReadRaw() ([]byte, error) {
 
 // Send sends a Modbus TCP PDU over the connection with auto-generated transaction ID
 func (t *TCPTransporter) Send(unitID uint8, pdu []byte) (uint16, error) {
+	return t.SendWithContext(context.Background(), unitID, pdu)
+}
+
+// SendWithContext sends a Modbus TCP PDU with context support
+func (t *TCPTransporter) SendWithContext(ctx context.Context, unitID uint8, pdu []byte) (uint16, error) {
 	transactionID := t.NextTransactionID()
-	err := t.SendWithTransactionID(transactionID, unitID, pdu)
+	err := t.SendWithTransactionIDAndContext(ctx, transactionID, unitID, pdu)
 	return transactionID, err
 }
 
 // SendWithTransactionID sends a Modbus TCP PDU with a specific transaction ID
 func (t *TCPTransporter) SendWithTransactionID(transactionID uint16, unitID uint8, pdu []byte) error {
+	return t.SendWithTransactionIDAndContext(context.Background(), transactionID, unitID, pdu)
+}
+
+// SendWithTransactionIDAndContext sends a Modbus TCP PDU with context and specific transaction ID
+func (t *TCPTransporter) SendWithTransactionIDAndContext(ctx context.Context, transactionID uint16, unitID uint8, pdu []byte) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	if t.closed {
+	if t.IsClosed() {
 		return fmt.Errorf("transporter is closed")
 	}
 
 	if len(pdu) == 0 {
 		return fmt.Errorf("PDU cannot be empty")
+	}
+
+	// Check context cancellation
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
 	}
 
 	t.log("Sending PDU: TxID=0x%04X, UnitID=%d, PDU length=%d", transactionID, unitID, len(pdu))
@@ -165,28 +328,50 @@ func (t *TCPTransporter) SendWithTransactionID(transactionID uint16, unitID uint
 	}
 	defer t.clearDeadline()
 
-	// Write the complete frame
+	// Write the complete frame with context cancellation support
 	written := 0
 	for written < len(frame) {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
 		n, err := t.conn.Write(frame[written:])
 		if err != nil {
+			t.recordError()
 			return fmt.Errorf("write failed after %d bytes: %w", written, err)
 		}
 		written += n
 	}
 
+	t.recordBytesSent(uint64(written))
+	t.recordMessageSent()
 	t.log("Successfully sent %d bytes (TxID=0x%04X)", written, transactionID)
 	return nil
 }
 
 // Receive receives a complete Modbus TCP response from the connection
 func (t *TCPTransporter) Receive() (transactionID uint16, unitID uint8, pdu []byte, err error) {
+	return t.ReceiveWithContext(context.Background())
+}
+
+// ReceiveWithContext receives a complete Modbus TCP response with context support
+func (t *TCPTransporter) ReceiveWithContext(ctx context.Context) (transactionID uint16, unitID uint8, pdu []byte, err error) {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 
-	if t.closed {
+	if t.IsClosed() {
 		err = fmt.Errorf("transporter is closed")
 		return
+	}
+
+	// Check context cancellation
+	select {
+	case <-ctx.Done():
+		err = ctx.Err()
+		return
+	default:
 	}
 
 	t.log("Receiving response from connection")
@@ -201,17 +386,9 @@ func (t *TCPTransporter) Receive() (transactionID uint16, unitID uint8, pdu []by
 	// Read MBAP Header (7 bytes) using io.ReadFull to ensure we get complete header
 	header := make([]byte, TCPHeaderLength)
 	if _, err = io.ReadFull(t.conn, header); err != nil {
+		t.recordError()
 		err = fmt.Errorf("failed to read MBAP header: %w", err)
 		return
-	}
-
-	// Validate the header using packager
-	if err = t.packager.ValidateFrame(header); err != nil {
-		// For header validation, we only check the first part
-		// Create a temporary frame with minimum data for validation
-		tempFrame := make([]byte, TCPHeaderLength+1)
-		copy(tempFrame, header)
-		// We'll validate the complete frame after reading PDU
 	}
 
 	// Extract length from header to determine PDU size
@@ -219,10 +396,12 @@ func (t *TCPTransporter) Receive() (transactionID uint16, unitID uint8, pdu []by
 
 	// Validate length field
 	if length == 0 {
+		t.recordError()
 		err = fmt.Errorf("invalid length field: cannot be zero")
 		return
 	}
 	if length > MaxPDULength+1 { // +1 for unit ID
+		t.recordError()
 		err = fmt.Errorf("length field too large: %d, maximum: %d", length, MaxPDULength+1)
 		return
 	}
@@ -230,6 +409,7 @@ func (t *TCPTransporter) Receive() (transactionID uint16, unitID uint8, pdu []by
 	// Length includes Unit ID (1 byte), so PDU length is (length - 1)
 	pduLength := int(length) - 1
 	if pduLength < 0 {
+		t.recordError()
 		err = fmt.Errorf("invalid PDU length: %d", pduLength)
 		return
 	}
@@ -238,6 +418,7 @@ func (t *TCPTransporter) Receive() (transactionID uint16, unitID uint8, pdu []by
 	pduData := make([]byte, pduLength)
 	if pduLength > 0 {
 		if _, err = io.ReadFull(t.conn, pduData); err != nil {
+			t.recordError()
 			err = fmt.Errorf("failed to read PDU (%d bytes): %w", pduLength, err)
 			return
 		}
@@ -251,34 +432,76 @@ func (t *TCPTransporter) Receive() (transactionID uint16, unitID uint8, pdu []by
 	// Unpack the complete frame
 	transactionID, unitID, pdu, err = t.packager.Unpack(completeFrame)
 	if err != nil {
+		t.recordError()
 		err = fmt.Errorf("failed to unpack frame: %w", err)
 		return
 	}
 
+	t.recordBytesReceived(uint64(len(completeFrame)))
+	t.recordMessageReceived()
 	t.log("Successfully received response: TxID=0x%04X, UnitID=%d, PDU length=%d",
 		transactionID, unitID, len(pdu))
 
 	return
 }
 
-// SendAndReceive sends a request and waits for a response with matching transaction ID
+// SendAndReceive sends a request and waits for a response with enhanced retry logic
 func (t *TCPTransporter) SendAndReceive(unitID uint8, requestPDU []byte) (responsePDU []byte, err error) {
-	// Send the request
-	txID, err := t.Send(unitID, requestPDU)
-	if err != nil {
-		return nil, fmt.Errorf("send failed: %w", err)
+	return t.SendAndReceiveWithContext(context.Background(), unitID, requestPDU)
+}
+
+// SendAndReceiveWithContext sends a request and waits for a response with context support
+func (t *TCPTransporter) SendAndReceiveWithContext(ctx context.Context, unitID uint8, requestPDU []byte) (responsePDU []byte, err error) {
+	maxRetries := t.maxRetries
+	if maxRetries <= 0 {
+		maxRetries = 3
 	}
 
-	// Receive response with timeout
-	maxRetries := 3
-	for i := 0; i < maxRetries; i++ {
-		respTxID, respUnitID, respPDU, receiveErr := t.Receive()
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		// Check context cancellation
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
 
-		if receiveErr != nil {
-			if i == maxRetries-1 {
-				return nil, fmt.Errorf("receive failed after %d retries: %w", maxRetries, receiveErr)
+		// Send the request
+		txID, sendErr := t.SendWithContext(ctx, unitID, requestPDU)
+		if sendErr != nil {
+			if attempt == maxRetries-1 {
+				return nil, fmt.Errorf("send failed after %d attempts: %w", maxRetries, sendErr)
 			}
-			t.log("Receive attempt %d failed, retrying: %v", i+1, receiveErr)
+			t.recordRetry()
+			t.log("Send attempt %d failed, retrying: %v", attempt+1, sendErr)
+
+			// Wait before retry
+			if t.retryDelay > 0 {
+				select {
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				case <-time.After(t.retryDelay):
+				}
+			}
+			continue
+		}
+
+		// Receive response with timeout
+		respTxID, respUnitID, respPDU, receiveErr := t.ReceiveWithContext(ctx)
+		if receiveErr != nil {
+			if attempt == maxRetries-1 {
+				return nil, fmt.Errorf("receive failed after %d attempts: %w", maxRetries, receiveErr)
+			}
+			t.recordRetry()
+			t.log("Receive attempt %d failed, retrying: %v", attempt+1, receiveErr)
+
+			// Wait before retry
+			if t.retryDelay > 0 {
+				select {
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				case <-time.After(t.retryDelay):
+				}
+			}
 			continue
 		}
 
@@ -293,7 +516,7 @@ func (t *TCPTransporter) SendAndReceive(unitID uint8, requestPDU []byte) (respon
 			continue
 		}
 
-		// This is our response
+		// Success
 		return respPDU, nil
 	}
 
@@ -302,28 +525,29 @@ func (t *TCPTransporter) SendAndReceive(unitID uint8, requestPDU []byte) (respon
 
 // Close closes the underlying connection and marks the transporter as closed
 func (t *TCPTransporter) Close() error {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	if t.closed {
+	// Use atomic operation to ensure thread-safe closing
+	if !atomic.CompareAndSwapInt32(&t.closed, 0, 1) {
 		return nil // Already closed
 	}
 
-	t.closed = true
+	// Signal shutdown
+	t.shutdownOnce.Do(func() {
+		close(t.shutdownCh)
+	})
+
 	t.log("Closing TCP transporter")
+
+	// Return connection to pool if it's pooled
+	if t.isPooled && t.poolReturnFn != nil {
+		t.poolReturnFn()
+		return nil
+	}
 
 	if t.conn != nil {
 		return t.conn.Close()
 	}
 
 	return nil
-}
-
-// IsClosed returns whether the transporter is closed
-func (t *TCPTransporter) IsClosed() bool {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-	return t.closed
 }
 
 // GetLocalAddr returns the local network address
@@ -340,4 +564,109 @@ func (t *TCPTransporter) GetRemoteAddr() net.Addr {
 		return nil
 	}
 	return t.conn.RemoteAddr()
+}
+
+// GetStats returns transport statistics (thread-safe)
+func (t *TCPTransporter) GetStats() *TransportStats {
+	if t.stats == nil {
+		return nil
+	}
+
+	t.stats.mu.RLock()
+	defer t.stats.mu.RUnlock()
+
+	// Return a copy to prevent concurrent access issues
+	return &TransportStats{
+		BytesSent:        t.stats.BytesSent,
+		BytesReceived:    t.stats.BytesReceived,
+		MessagesSent:     t.stats.MessagesSent,
+		MessagesReceived: t.stats.MessagesReceived,
+		Errors:           t.stats.Errors,
+		Retries:          t.stats.Retries,
+	}
+}
+
+// ResetStats resets all transport statistics
+func (t *TCPTransporter) ResetStats() {
+	if t.stats == nil {
+		return
+	}
+
+	t.stats.mu.Lock()
+	defer t.stats.mu.Unlock()
+
+	t.stats.BytesSent = 0
+	t.stats.BytesReceived = 0
+	t.stats.MessagesSent = 0
+	t.stats.MessagesReceived = 0
+	t.stats.Errors = 0
+	t.stats.Retries = 0
+}
+
+// SetPooled marks this transporter as being managed by a connection pool
+func (t *TCPTransporter) SetPooled(returnFn func()) {
+	t.isPooled = true
+	t.poolReturnFn = returnFn
+}
+
+// GetShutdownChannel returns a channel that will be closed when the transporter is shutting down
+func (t *TCPTransporter) GetShutdownChannel() <-chan struct{} {
+	return t.shutdownCh
+}
+
+// Health check method to verify connection is still valid
+func (t *TCPTransporter) HealthCheck() error {
+	if t.IsClosed() {
+		return fmt.Errorf("transporter is closed")
+	}
+
+	if t.conn == nil {
+		return fmt.Errorf("connection is nil")
+	}
+
+	// Try to set a deadline as a simple connectivity test
+	if err := t.conn.SetDeadline(time.Now().Add(time.Millisecond)); err != nil {
+		return fmt.Errorf("connection health check failed: %w", err)
+	}
+
+	// Clear the deadline immediately
+	t.conn.SetDeadline(time.Time{})
+	return nil
+}
+
+// Statistics recording methods (thread-safe)
+func (t *TCPTransporter) recordBytesSent(bytes uint64) {
+	if t.stats != nil {
+		atomic.AddUint64(&t.stats.BytesSent, bytes)
+	}
+}
+
+func (t *TCPTransporter) recordBytesReceived(bytes uint64) {
+	if t.stats != nil {
+		atomic.AddUint64(&t.stats.BytesReceived, bytes)
+	}
+}
+
+func (t *TCPTransporter) recordMessageSent() {
+	if t.stats != nil {
+		atomic.AddUint64(&t.stats.MessagesSent, 1)
+	}
+}
+
+func (t *TCPTransporter) recordMessageReceived() {
+	if t.stats != nil {
+		atomic.AddUint64(&t.stats.MessagesReceived, 1)
+	}
+}
+
+func (t *TCPTransporter) recordError() {
+	if t.stats != nil {
+		atomic.AddUint64(&t.stats.Errors, 1)
+	}
+}
+
+func (t *TCPTransporter) recordRetry() {
+	if t.stats != nil {
+		atomic.AddUint64(&t.stats.Retries, 1)
+	}
 }
