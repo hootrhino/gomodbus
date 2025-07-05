@@ -66,6 +66,9 @@ func (p *RTUPackager) calculateCRCDirect(data []byte) uint16 {
 
 // Pack creates an RTU frame with slave ID, PDU, and CRC
 func (p *RTUPackager) Pack(slaveID uint8, pdu []byte) ([]byte, error) {
+	if slaveID == 0 {
+		return nil, fmt.Errorf("slaveID cannot be zero")
+	}
 	if len(pdu) == 0 {
 		return nil, fmt.Errorf("PDU cannot be empty")
 	}
