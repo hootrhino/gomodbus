@@ -10,118 +10,60 @@ import (
 
 // RTUTransporter handles Modbus RTU communication with optimizations
 type RTUTransporter struct {
-	timeout       time.Duration
-	packager      *RTUPackager
-	port          io.ReadWriteCloser
-	mu            sync.RWMutex  // Protect concurrent access
-	readBuffer    []byte        // Pre-allocated read buffer
-	frameBuffer   []byte        // Pre-allocated frame buffer
-	isTimedPort   bool          // Whether port supports timeout operations
-	maxFrameSize  int           // Maximum frame size
-	interCharTime time.Duration // Inter-character timeout
-	frameTimeout  time.Duration // Frame timeout
-}
-
-// TimedReadWriteCloser interface for ports that support timeout operations
-type TimedReadWriteCloser interface {
-	io.ReadWriteCloser
-	SetReadTimeout(timeout time.Duration) error
-	SetWriteTimeout(timeout time.Duration) error
+	packager     *RTUPackager
+	port         io.ReadWriteCloser
+	mu           sync.RWMutex // Protect concurrent access
+	readBuffer   []byte       // Pre-allocated read buffer
+	frameBuffer  []byte       // Pre-allocated frame buffer
+	maxFrameSize int          // Maximum frame size
 }
 
 // RTUConfig holds configuration parameters for RTU transporter
 type RTUConfig struct {
-	Timeout       time.Duration
-	InterCharTime time.Duration
-	FrameTimeout  time.Duration
-	MaxFrameSize  int
+	MaxFrameSize int
 }
 
 // DefaultRTUConfig returns default configuration
 func DefaultRTUConfig() RTUConfig {
 	return RTUConfig{
-		Timeout:       1 * time.Second,
-		InterCharTime: 3 * time.Millisecond, // 3.5 chars at 9600 baud
-		FrameTimeout:  100 * time.Millisecond,
-		MaxFrameSize:  256,
+		MaxFrameSize: 256,
 	}
 }
 
 // NewRTUTransporter creates a new RTUTransporter with optimizations
 func NewRTUTransporter(port io.ReadWriteCloser, config RTUConfig) *RTUTransporter {
-	_, isTimedPort := port.(TimedReadWriteCloser)
-
 	if config.MaxFrameSize <= 0 {
 		config.MaxFrameSize = 256
 	}
 
 	return &RTUTransporter{
-		port:          port,
-		timeout:       config.Timeout,
-		interCharTime: config.InterCharTime,
-		frameTimeout:  config.FrameTimeout,
-		packager:      NewRTUPackager(),
-		readBuffer:    make([]byte, config.MaxFrameSize),
-		frameBuffer:   make([]byte, config.MaxFrameSize),
-		isTimedPort:   isTimedPort,
-		maxFrameSize:  config.MaxFrameSize,
+		port:         port,
+		packager:     NewRTUPackager(),
+		readBuffer:   make([]byte, config.MaxFrameSize),
+		frameBuffer:  make([]byte, config.MaxFrameSize),
+		maxFrameSize: config.MaxFrameSize,
 	}
-}
-
-// SetTimeout updates the communication timeout
-func (t *RTUTransporter) SetTimeout(timeout time.Duration) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.timeout = timeout
 }
 
 // WriteRaw writes raw bytes to the serial port with timeout and pre-transmission delay
 func (t *RTUTransporter) WriteRaw(data []byte) error {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
 	if len(data) == 0 {
 		return fmt.Errorf("cannot write empty data")
 	}
-
-	t.mu.RLock()
-	timeout := t.timeout
-	t.mu.RUnlock()
-
-	// Ensure minimum inter-frame delay before transmission
-	time.Sleep(t.interCharTime)
-
-	// Set write timeout if supported
-	if t.isTimedPort {
-		if timedPort, ok := t.port.(TimedReadWriteCloser); ok {
-			if err := timedPort.SetWriteTimeout(timeout); err != nil {
-				return fmt.Errorf("failed to set write timeout: %v", err)
-			}
+	bytesWritten := 0
+	for bytesWritten < len(data) {
+		n, err := t.port.Write(data[bytesWritten:])
+		if err != nil {
+			return fmt.Errorf("write failed after %d bytes: %v", bytesWritten, err)
 		}
+		bytesWritten += n
 	}
-
-	// Use context for timeout control
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	done := make(chan error, 1)
-	go func() {
-		// Write all data at once to minimize transmission delays
-		bytesWritten := 0
-		for bytesWritten < len(data) {
-			n, err := t.port.Write(data[bytesWritten:])
-			if err != nil {
-				done <- fmt.Errorf("write failed after %d bytes: %v", bytesWritten, err)
-				return
-			}
-			bytesWritten += n
-		}
-		done <- nil
-	}()
-
-	select {
-	case err := <-done:
-		return err
-	case <-ctx.Done():
-		return fmt.Errorf("write timeout after %v", timeout)
+	if bytesWritten != len(data) {
+		return fmt.Errorf("partial write: expected %d bytes, wrote %d", len(data), bytesWritten)
 	}
+	return nil
 }
 
 // readByteWithTimeout reads a single byte with timeout
@@ -168,89 +110,23 @@ func (t *RTUTransporter) readByteWithTimeout(timeout time.Duration) (byte, error
 // ReadRaw reads a complete RTU frame with intelligent frame detection
 func (t *RTUTransporter) ReadRaw() ([]byte, error) {
 	t.mu.RLock()
-	timeout := t.timeout
-	interCharTime := t.interCharTime
-	t.mu.RUnlock()
-
-	// Set read timeout if supported
-	if t.isTimedPort {
-		if timedPort, ok := t.port.(TimedReadWriteCloser); ok {
-			if err := timedPort.SetReadTimeout(timeout); err != nil {
-				return nil, fmt.Errorf("failed to set read timeout: %v", err)
-			}
-		}
+	defer t.mu.RUnlock()
+	N, err := t.port.Read(t.readBuffer)
+	if err != nil {
+		return nil, fmt.Errorf("read failed: %v", err)
 	}
-
-	var frame []byte
-	frameStarted := false
-	lastByteTime := time.Now()
-
-	// Overall timeout for the entire frame
-	frameCtx, frameCancel := context.WithTimeout(context.Background(), timeout)
-	defer frameCancel()
-
-	for {
-		// Check if overall timeout exceeded
-		select {
-		case <-frameCtx.Done():
-			if len(frame) > 0 {
-				return frame, nil // Return partial frame
-			}
-			return nil, fmt.Errorf("frame timeout after %v", timeout)
-		default:
-		}
-
-		// Read next byte with inter-character timeout
-		readTimeout := interCharTime
-		if !frameStarted {
-			readTimeout = timeout // First byte can take longer
-		}
-
-		b, err := t.readByteWithTimeout(readTimeout)
-		if err != nil {
-			// If we have a partial frame and timeout, consider frame complete
-			if len(frame) > 0 && (err == context.DeadlineExceeded || err.Error() == "context deadline exceeded") {
-				return frame, nil
-			}
-			return nil, fmt.Errorf("read error: %v", err)
-		}
-
-		currentTime := time.Now()
-
-		// Check for inter-character timeout (frame boundary detection)
-		if frameStarted && currentTime.Sub(lastByteTime) > interCharTime {
-			// Inter-character timeout exceeded, previous frame is complete
-			// Start new frame with current byte
-			frame = []byte{b}
-		} else {
-			// Add byte to current frame
-			frame = append(frame, b)
-		}
-
-		frameStarted = true
-		lastByteTime = currentTime
-
-		// Check if we have a minimum valid frame (at least 4 bytes: SlaveID + FuncCode + CRC)
-		if len(frame) >= 4 {
-			// Try to validate if this could be a complete frame
-			if t.isValidFrameLength(frame) {
-				// Wait a bit more to see if more data arrives
-				time.Sleep(interCharTime / 2)
-
-				// Try to read one more byte to confirm frame end
-				_, err := t.readByteWithTimeout(interCharTime / 2)
-				if err != nil {
-					// No more data, frame is complete
-					return frame, nil
-				}
-			}
-		}
-
-		// Prevent infinite frames
-		if len(frame) >= t.maxFrameSize {
-			return frame, nil
-		}
+	if N == 0 {
+		return nil, fmt.Errorf("no data read")
 	}
+	frame := t.readBuffer[:N]
+	if !t.isValidFrameLength(frame) {
+		return nil, fmt.Errorf("invalid frame length")
+	}
+	if !t.packager.VerifyCRC(frame) {
+		return nil, fmt.Errorf("CRC verification failed")
+	}
+	return frame, nil
+
 }
 
 // isValidFrameLength checks if the frame length is valid for the function code
@@ -404,16 +280,6 @@ func (t *RTUTransporter) isValidFrameStructure(frame []byte) bool {
 	return t.packager.VerifyCRC(frame)
 }
 
-// ReceiveWithTimeout receives a frame with specific timeout
-func (t *RTUTransporter) ReceiveWithTimeout(timeout time.Duration) (uint8, []byte, error) {
-	// Temporarily set timeout
-	originalTimeout := t.timeout
-	t.SetTimeout(timeout)
-	defer t.SetTimeout(originalTimeout)
-
-	return t.Receive()
-}
-
 // ReceiveWithContext receives a frame with context cancellation support
 func (t *RTUTransporter) ReceiveWithContext(ctx context.Context) (uint8, []byte, error) {
 	type result struct {
@@ -490,20 +356,6 @@ func (t *RTUTransporter) FlushBuffers() error {
 		}
 	}
 	return nil
-}
-
-// GetStats returns communication statistics
-func (t *RTUTransporter) GetStats() map[string]interface{} {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-
-	return map[string]interface{}{
-		"timeout":         t.timeout,
-		"inter_char_time": t.interCharTime,
-		"frame_timeout":   t.frameTimeout,
-		"max_frame_size":  t.maxFrameSize,
-		"is_timed_port":   t.isTimedPort,
-	}
 }
 
 // Close closes the underlying serial port

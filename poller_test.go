@@ -22,9 +22,7 @@ func TestModbusDevicePollerWithRTU(t *testing.T) {
 	}
 	defer port.Close()
 
-	handler := NewModbusRTUHandler(port, RTUConfig{
-		Timeout: 1 * time.Second,
-	})
+	handler := NewModbusRTUHandler(port, RTUConfig{})
 
 	tests := []struct {
 		name            string
