@@ -8,17 +8,22 @@ import (
 )
 
 // DeviceRegister and Client are assumed to be defined elsewhere
+
+// OnDataFunc is a callback type for pushing register data
 type OnDataFunc func([]DeviceRegister)
+
+// OnErrorFunc is a callback type for error reporting
 type OnErrorFunc func(error)
 
-// RegisterScheduler handles loading and organizing register groups
+// RegisterScheduler handles grouping and scheduling of Modbus register reads
 type RegisterScheduler struct {
-	client     ModbusApi
-	groups     [][]DeviceRegister
-	clientType string
-	mu         sync.Mutex
+	client     ModbusApi          // Modbus client instance
+	groups     [][]DeviceRegister // Grouped registers for batch reading
+	clientType string             // "TCP" or other, affects concurrency
+	mu         sync.Mutex         // Protects groups and clientType
 }
 
+// NewRegisterScheduler creates a new RegisterScheduler for a Modbus client
 func NewRegisterScheduler(client ModbusApi) *RegisterScheduler {
 	return &RegisterScheduler{
 		client:     client,
@@ -26,6 +31,7 @@ func NewRegisterScheduler(client ModbusApi) *RegisterScheduler {
 	}
 }
 
+// Load validates and groups registers for efficient polling
 func (rs *RegisterScheduler) Load(registers []DeviceRegister) error {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
@@ -40,6 +46,7 @@ func (rs *RegisterScheduler) Load(registers []DeviceRegister) error {
 	return nil
 }
 
+// ReadGrouped reads all register groups, using concurrency for TCP clients
 func (rs *RegisterScheduler) ReadGrouped() ([][]DeviceRegister, []error) {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
@@ -49,15 +56,15 @@ func (rs *RegisterScheduler) ReadGrouped() ([][]DeviceRegister, []error) {
 	return ReadGroupedDataSequential(rs.client, rs.groups)
 }
 
-// RegisterStream handles data pushing and callback dispatch
-
+// RegisterStream handles asynchronous data pushing and callback dispatch
 type RegisterStream struct {
-	dataCh  chan []DeviceRegister
-	stopCh  chan struct{}
-	onData  atomic.Value // holds OnDataFunc
-	onError atomic.Value // holds OnErrorFunc
+	dataCh  chan []DeviceRegister // Channel for pushing register data
+	stopCh  chan struct{}         // Channel to signal stop
+	onData  atomic.Value          // Stores OnDataFunc callback
+	onError atomic.Value          // Stores OnErrorFunc callback
 }
 
+// NewRegisterStream creates a RegisterStream with a given buffer size
 func NewRegisterStream(bufferSize int) *RegisterStream {
 	rs := &RegisterStream{
 		dataCh: make(chan []DeviceRegister, bufferSize),
@@ -66,14 +73,17 @@ func NewRegisterStream(bufferSize int) *RegisterStream {
 	return rs
 }
 
+// SetOnData sets the callback for data events
 func (rs *RegisterStream) SetOnData(fn OnDataFunc) {
 	rs.onData.Store(fn)
 }
 
+// SetOnError sets the callback for error events
 func (rs *RegisterStream) SetOnError(fn OnErrorFunc) {
 	rs.onError.Store(fn)
 }
 
+// Start launches the goroutine to dispatch data to the OnData callback
 func (rs *RegisterStream) Start() {
 	go func() {
 		for {
@@ -92,6 +102,7 @@ func (rs *RegisterStream) Start() {
 	}()
 }
 
+// Push sends register data to the stream, unless stopped
 func (rs *RegisterStream) Push(data []DeviceRegister) {
 	select {
 	case rs.dataCh <- data:
@@ -100,17 +111,18 @@ func (rs *RegisterStream) Push(data []DeviceRegister) {
 	}
 }
 
+// Stop signals the stream to stop processing
 func (rs *RegisterStream) Stop() {
 	close(rs.stopCh)
 }
 
-// ModbusRegisterManager coordinates scheduling and streaming
-
+// ModbusRegisterManager coordinates register scheduling and streaming
 type ModbusRegisterManager struct {
-	Scheduler *RegisterScheduler
-	Stream    *RegisterStream
+	Scheduler *RegisterScheduler // Handles grouping and scheduling
+	Stream    *RegisterStream    // Handles data streaming and callbacks
 }
 
+// NewModbusRegisterManager creates a new manager for a Modbus client
 func NewModbusRegisterManager(client ModbusApi, bufferSize int) *ModbusRegisterManager {
 	return &ModbusRegisterManager{
 		Scheduler: NewRegisterScheduler(client),
@@ -118,10 +130,12 @@ func NewModbusRegisterManager(client ModbusApi, bufferSize int) *ModbusRegisterM
 	}
 }
 
+// LoadRegisters loads and groups registers for polling
 func (m *ModbusRegisterManager) LoadRegisters(registers []DeviceRegister) error {
 	return m.Scheduler.Load(registers)
 }
 
+// ReadAndStream reads all register groups and pushes them to the stream
 func (m *ModbusRegisterManager) ReadAndStream() []error {
 	groups, errs := m.Scheduler.ReadGrouped()
 	for _, group := range groups {
@@ -129,26 +143,36 @@ func (m *ModbusRegisterManager) ReadAndStream() []error {
 	}
 	return errs
 }
+
+// SetOnData sets the data callback for the stream
 func (m *ModbusRegisterManager) SetOnData(fn OnDataFunc) {
 	m.Stream.SetOnData(fn)
 }
+
+// SetOnError sets the error callback for the stream
 func (m *ModbusRegisterManager) SetOnError(fn OnErrorFunc) {
 	m.Stream.SetOnError(fn)
 }
+
+// Start launches the stream's goroutine
 func (m *ModbusRegisterManager) Start() {
 	m.Stream.Start()
 }
+
+// Stop signals the stream to stop
 func (m *ModbusRegisterManager) Stop() {
 	m.Stream.Stop()
 }
 
+// ModbusDevicePoller manages periodic polling of multiple ModbusRegisterManagers
 type ModbusDevicePoller struct {
-	managers []*ModbusRegisterManager
-	interval time.Duration
-	stopCh   chan struct{}
-	wg       sync.WaitGroup
+	managers []*ModbusRegisterManager // All managers to poll
+	interval time.Duration            // Polling interval
+	stopCh   chan struct{}            // Channel to signal stop
+	wg       sync.WaitGroup           // WaitGroup for polling goroutine
 }
 
+// NewModbusDevicePoller creates a new poller with a given interval
 func NewModbusDevicePoller(interval time.Duration) *ModbusDevicePoller {
 	return &ModbusDevicePoller{
 		interval: interval,
@@ -156,10 +180,12 @@ func NewModbusDevicePoller(interval time.Duration) *ModbusDevicePoller {
 	}
 }
 
+// AddManager adds a ModbusRegisterManager to the poller
 func (dp *ModbusDevicePoller) AddManager(mgr *ModbusRegisterManager) {
 	dp.managers = append(dp.managers, mgr)
 }
 
+// Start begins periodic polling of all managers and dispatches data/errors
 func (dp *ModbusDevicePoller) Start() {
 	for _, mgr := range dp.managers {
 		mgr.Start()
@@ -202,6 +228,7 @@ func (dp *ModbusDevicePoller) Start() {
 	}()
 }
 
+// Stop signals the poller and all managers to stop polling and streaming
 func (dp *ModbusDevicePoller) Stop() {
 	close(dp.stopCh)
 	dp.wg.Wait()
