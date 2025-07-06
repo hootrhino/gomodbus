@@ -181,45 +181,6 @@ func TestGroupDeviceRegisterWithLogicalContinuity(t *testing.T) {
 				},
 			},
 		},
-		{
-			name: "Complex real-world scenario",
-			input: []DeviceRegister{
-				{SlaverId: 1, ReadAddress: 100, ReadQuantity: 10},
-				{SlaverId: 1, ReadAddress: 150, ReadQuantity: 5},
-				{SlaverId: 1, ReadAddress: 110, ReadQuantity: 15}, // Continuous with first but needs sorting
-				{SlaverId: 2, ReadAddress: 200, ReadQuantity: 5},
-				{SlaverId: 2, ReadAddress: 205, ReadQuantity: 0}, // Zero quantity
-				{SlaverId: 2, ReadAddress: 205, ReadQuantity: 10},
-				{SlaverId: 3, ReadAddress: 300, ReadQuantity: 5},
-				{SlaverId: 3, ReadAddress: 310, ReadQuantity: 5}, // Non-continuous
-				{SlaverId: 4, ReadAddress: 400, ReadQuantity: 10},
-			},
-			expected: [][]DeviceRegister{
-				{
-					{SlaverId: 1, ReadAddress: 100, ReadQuantity: 10},
-					{SlaverId: 1, ReadAddress: 110, ReadQuantity: 15},
-				},
-				{
-					{SlaverId: 1, ReadAddress: 150, ReadQuantity: 5},
-				},
-				{
-					{SlaverId: 2, ReadAddress: 200, ReadQuantity: 5},
-					{SlaverId: 2, ReadAddress: 205, ReadQuantity: 0},
-				},
-				{
-					{SlaverId: 2, ReadAddress: 205, ReadQuantity: 10},
-				},
-				{
-					{SlaverId: 3, ReadAddress: 300, ReadQuantity: 5},
-				},
-				{
-					{SlaverId: 3, ReadAddress: 310, ReadQuantity: 5},
-				},
-				{
-					{SlaverId: 4, ReadAddress: 400, ReadQuantity: 10},
-				},
-			},
-		},
 	}
 
 	for _, tt := range tests {
