@@ -27,31 +27,45 @@ func GroupDeviceRegisterWithLogicalContinuity(registers []DeviceRegister) [][]De
 		return [][]DeviceRegister{}
 	}
 
-	slaverGroups := make(map[uint8][]DeviceRegister)
-	for _, reg := range registers {
-		regCopy := reg
-		_, _, isArray, _ := parseArrayType(reg.DataType)
-		if isArray {
-			continue // skip array-type registers from grouping
+	regsCopy := make([]DeviceRegister, len(registers))
+	copy(regsCopy, registers)
+
+	for i := range regsCopy {
+		if regsCopy[i].ReadQuantity == 0 {
+			if err := regsCopy[i].CalculateReadQuantity(); err != nil {
+				continue
+			}
 		}
-		slaverGroups[reg.SlaverId] = append(slaverGroups[reg.SlaverId], regCopy)
+	}
+
+	slaverGroups := make(map[uint8][]DeviceRegister)
+	for _, reg := range regsCopy {
+		slaverGroups[reg.SlaverId] = append(slaverGroups[reg.SlaverId], reg)
 	}
 
 	result := make([][]DeviceRegister, 0, len(slaverGroups))
+
 	for _, regs := range slaverGroups {
 		if len(regs) == 0 {
 			continue
 		}
-		sortByReadAddress(regs)
+
+		sort.Slice(regs, func(i, j int) bool {
+			return regs[i].ReadAddress < regs[j].ReadAddress
+		})
+
 		currentGroup := []DeviceRegister{regs[0]}
+
 		for i := 1; i < len(regs); i++ {
 			prev := regs[i-1]
 			curr := regs[i]
-			if prev.ReadQuantity == 0 || curr.ReadQuantity == 0 {
+
+			if prev.ReadQuantity == 0 {
 				result = append(result, currentGroup)
 				currentGroup = []DeviceRegister{curr}
 				continue
 			}
+
 			if curr.ReadAddress == prev.ReadAddress+prev.ReadQuantity {
 				currentGroup = append(currentGroup, curr)
 			} else {
@@ -59,10 +73,12 @@ func GroupDeviceRegisterWithLogicalContinuity(registers []DeviceRegister) [][]De
 				currentGroup = []DeviceRegister{curr}
 			}
 		}
+
 		if len(currentGroup) > 0 {
 			result = append(result, currentGroup)
 		}
 	}
+
 	return result
 }
 

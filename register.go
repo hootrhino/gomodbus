@@ -20,10 +20,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"regexp"
+	"strconv"
+	"strings"
 	"unsafe"
 )
-import "regexp"
-import "strconv"
 
 // DeviceRegister represents a Modbus register with metadata
 type DeviceRegister struct {
@@ -44,34 +45,69 @@ type DeviceRegister struct {
 	Status       string  `json:"status"`       // Status of the register (e.g., "OK", "Error")
 }
 
-// parseArrayType parses DataType like "int16[2]" or "float32[]"
-func parseArrayType(dataType string) (baseType string, count int, isArray bool, autoLength bool) {
-	re := regexp.MustCompile(`^(\w+)\[(\d*)\]$`)
-	matches := re.FindStringSubmatch(dataType)
-	if len(matches) == 3 {
-		if matches[2] == "" {
-			return matches[1], 0, true, true
-		}
-		n, _ := strconv.Atoi(matches[2])
-		return matches[1], n, true, false
+// CalculateReadQuantity calculates the ReadQuantity based on the DataType
+func (r *DeviceRegister) CalculateReadQuantity() error {
+	baseType, count, err := parseArrayType(r.DataType)
+	if err != nil {
+		return err
 	}
-	return dataType, 1, false, false
+
+	requiredBytesPerElement, err := getRequiredBytes(baseType)
+	if err != nil {
+		return err
+	}
+
+	// Calculate required number of registers (each register is 2 bytes)
+	r.ReadQuantity = uint16(count * (requiredBytesPerElement / 2))
+	return nil
+}
+
+// parseArrayType parses the data type string and returns the base type and array length
+func parseArrayType(dataType string) (string, int, error) {
+	// Check if it's an array type
+	if strings.Contains(dataType, "[") && strings.Contains(dataType, "]") {
+		// Extract base type and array length
+		re := regexp.MustCompile(`^(\w+)\[(\d+)\]$`)
+		matches := re.FindStringSubmatch(dataType)
+		if len(matches) != 3 {
+			return "", 0, fmt.Errorf("invalid array type format: %s", dataType)
+		}
+
+		baseType := matches[1]
+		count, err := strconv.Atoi(matches[2])
+		if err != nil {
+			return "", 0, fmt.Errorf("invalid array length in type: %s", dataType)
+		}
+
+		return baseType, count, nil
+	}
+
+	// Not an array type, return base type and length 1
+	return dataType, 1, nil
 }
 func (r DeviceRegister) DecodeValue() (DecodedValue, error) {
-	baseType, count, isArray, autoLength := parseArrayType(r.DataType)
+	// 只使用三个变量接收返回值
+	baseType, count, err := parseArrayType(r.DataType)
+	if err != nil {
+		return DecodedValue{Raw: r.Value}, err
+	}
+
 	requiredBytesPerElement, err := getRequiredBytes(baseType)
 	if err != nil {
 		return DecodedValue{Raw: r.Value}, err
 	}
 
-	// Auto-calculate array length if needed
-	if autoLength {
+	// 自动计算数组长度
+	if count == 0 { // 假设 count=0 表示需要自动计算
 		totalBytes := int(r.ReadQuantity) * 2
 		count = totalBytes / requiredBytesPerElement
 		if count <= 0 {
 			return DecodedValue{Raw: r.Value}, fmt.Errorf("ReadQuantity %d too small for %s[]", r.ReadQuantity, baseType)
 		}
 	}
+
+	// 判断是否为数组类型
+	isArray := count > 1
 
 	totalRequired := requiredBytesPerElement * count
 	if baseType != "string" && len(r.Value) < totalRequired {

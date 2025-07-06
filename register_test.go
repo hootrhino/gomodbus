@@ -18,14 +18,243 @@ package modbus
 import (
 	"encoding/binary"
 	"encoding/csv"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
+
+	"encoding/json"
+	"reflect"
 )
 
+func ParseRegistersCSV(filePath string) ([]DeviceRegister, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	reader := csv.NewReader(file)
+	records, err := reader.ReadAll()
+	if err != nil {
+		return nil, err
+	}
+
+	if len(records) < 2 {
+		return nil, fmt.Errorf("CSV file requires at least header and one data row")
+	}
+
+	headers := records[0]
+	registers := make([]DeviceRegister, 0, len(records)-1)
+
+	headerIndex := make(map[string]int)
+	for i, header := range headers {
+		headerIndex[header] = i
+	}
+
+	requiredColumns := []string{
+		"uuid", "tag", "alias", "slaverId", "function",
+		"readAddress", "readQuantity", "dataType", "dataOrder",
+		"bitPosition", "bitMask", "weight", "frequency",
+	}
+
+	for _, col := range requiredColumns {
+		if _, exists := headerIndex[col]; !exists {
+			return nil, fmt.Errorf("Missing required column: %s", col)
+		}
+	}
+
+	for i := 1; i < len(records); i++ {
+		record := records[i]
+		if len(record) < len(headers) {
+			return nil, fmt.Errorf("Row %d has insufficient columns", i)
+		}
+
+		reg := DeviceRegister{
+			UUID:        record[headerIndex["uuid"]],
+			Tag:         record[headerIndex["tag"]],
+			Alias:       record[headerIndex["alias"]],
+			DataType:    record[headerIndex["dataType"]],
+			DataOrder:   record[headerIndex["dataOrder"]],
+			BitPosition: parseUint16(record[headerIndex["bitPosition"]]),
+			BitMask:     parseUint16(record[headerIndex["bitMask"]]),
+			Weight:      parseFloat64(record[headerIndex["weight"]]),
+			Frequency:   parseUint64(record[headerIndex["frequency"]]),
+		}
+
+		slaverId, err := strconv.ParseUint(record[headerIndex["slaverId"]], 10, 8)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to parse slaverId (row %d): %v", i, err)
+		}
+		reg.SlaverId = uint8(slaverId)
+
+		function, err := strconv.ParseUint(record[headerIndex["function"]], 10, 8)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to parse function (row %d): %v", i, err)
+		}
+		reg.Function = uint8(function)
+
+		readAddress, err := strconv.ParseUint(record[headerIndex["readAddress"]], 10, 16)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to parse readAddress (row %d): %v", i, err)
+		}
+		reg.ReadAddress = uint16(readAddress)
+
+		readQuantity, err := strconv.ParseUint(record[headerIndex["readQuantity"]], 10, 16)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to parse readQuantity (row %d): %v", i, err)
+		}
+		reg.ReadQuantity = uint16(readQuantity)
+
+		if reg.ReadQuantity == 0 {
+			if err := reg.CalculateReadQuantity(); err != nil {
+				return nil, fmt.Errorf("Failed to calculate readQuantity (row %d): %v", i, err)
+			}
+		}
+
+		registers = append(registers, reg)
+	}
+
+	return registers, nil
+}
+
+func parseUint16(s string) uint16 {
+	val, _ := strconv.ParseUint(s, 10, 16)
+	return uint16(val)
+}
+
+func parseFloat64(s string) float64 {
+	val, _ := strconv.ParseFloat(s, 64)
+	return val
+}
+
+func parseUint64(s string) uint64 {
+	val, _ := strconv.ParseUint(s, 10, 64)
+	return val
+}
+
+func TestGroupDeviceRegisterWithLogicalContinuity(t *testing.T) {
+	tests := []struct {
+		name     string
+		regs     []DeviceRegister
+		expected [][]DeviceRegister
+	}{
+		{
+			name: "Single register",
+			regs: []DeviceRegister{
+				{ReadAddress: 100, ReadQuantity: 1, SlaverId: 1},
+			},
+			expected: [][]DeviceRegister{
+				{{ReadAddress: 100, ReadQuantity: 1, SlaverId: 1}},
+			},
+		},
+		{
+			name: "Two consecutive registers",
+			regs: []DeviceRegister{
+				{ReadAddress: 100, ReadQuantity: 10, SlaverId: 1},
+				{ReadAddress: 110, ReadQuantity: 5, SlaverId: 1},
+			},
+			expected: [][]DeviceRegister{
+				{
+					{ReadAddress: 100, ReadQuantity: 10, SlaverId: 1},
+					{ReadAddress: 110, ReadQuantity: 5, SlaverId: 1},
+				},
+			},
+		},
+		{
+			name: "Two non-consecutive registers",
+			regs: []DeviceRegister{
+				{ReadAddress: 100, ReadQuantity: 10, SlaverId: 1},
+				{ReadAddress: 120, ReadQuantity: 5, SlaverId: 1},
+			},
+			expected: [][]DeviceRegister{
+				{{ReadAddress: 100, ReadQuantity: 10, SlaverId: 1}},
+				{{ReadAddress: 120, ReadQuantity: 5, SlaverId: 1}},
+			},
+		},
+		{
+			name: "Registers from different slaves",
+			regs: []DeviceRegister{
+				{ReadAddress: 100, ReadQuantity: 10, SlaverId: 1},
+				{ReadAddress: 200, ReadQuantity: 5, SlaverId: 2},
+			},
+			expected: [][]DeviceRegister{
+				{{ReadAddress: 100, ReadQuantity: 10, SlaverId: 1}},
+				{{ReadAddress: 200, ReadQuantity: 5, SlaverId: 2}},
+			},
+		},
+		{
+			name: "Registers with ReadQuantity=0",
+			regs: []DeviceRegister{
+				{ReadAddress: 100, ReadQuantity: 0, SlaverId: 1, DataType: "uint16"},
+				{ReadAddress: 100, ReadQuantity: 5, SlaverId: 1, DataType: "uint16[5]"},
+				{ReadAddress: 105, ReadQuantity: 5, SlaverId: 1, DataType: "uint16[5]"},
+			},
+			expected: [][]DeviceRegister{
+				{{ReadAddress: 100, ReadQuantity: 0, SlaverId: 1, DataType: "uint16"}},
+				{
+					{ReadAddress: 100, ReadQuantity: 5, SlaverId: 1, DataType: "uint16[5]"},
+					{ReadAddress: 105, ReadQuantity: 5, SlaverId: 1, DataType: "uint16[5]"},
+				},
+			},
+		},
+		{
+			name: "Registers with out-of-order addresses",
+			regs: []DeviceRegister{
+				{ReadAddress: 120, ReadQuantity: 10, SlaverId: 1},
+				{ReadAddress: 100, ReadQuantity: 10, SlaverId: 1},
+				{ReadAddress: 110, ReadQuantity: 10, SlaverId: 1},
+			},
+			expected: [][]DeviceRegister{
+				{
+					{ReadAddress: 100, ReadQuantity: 10, SlaverId: 1},
+					{ReadAddress: 110, ReadQuantity: 10, SlaverId: 1},
+					{ReadAddress: 120, ReadQuantity: 10, SlaverId: 1},
+				},
+			},
+		},
+		{
+			name: "Mixed consecutive and non-consecutive registers from multiple slaves",
+			regs: []DeviceRegister{
+				{ReadAddress: 100, ReadQuantity: 10, SlaverId: 1},
+				{ReadAddress: 120, ReadQuantity: 5, SlaverId: 1},
+				{ReadAddress: 125, ReadQuantity: 5, SlaverId: 1},
+				{ReadAddress: 200, ReadQuantity: 5, SlaverId: 2},
+				{ReadAddress: 210, ReadQuantity: 3, SlaverId: 2},
+			},
+			expected: [][]DeviceRegister{
+				{{ReadAddress: 100, ReadQuantity: 10, SlaverId: 1}},
+				{
+					{ReadAddress: 120, ReadQuantity: 5, SlaverId: 1},
+					{ReadAddress: 125, ReadQuantity: 5, SlaverId: 1},
+				},
+				{{ReadAddress: 200, ReadQuantity: 5, SlaverId: 2}},
+				{{ReadAddress: 210, ReadQuantity: 3, SlaverId: 2}},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for i := range tt.regs {
+				if tt.regs[i].ReadQuantity == 0 {
+					tt.regs[i].CalculateReadQuantity()
+				}
+			}
+
+			result := GroupDeviceRegisterWithLogicalContinuity(tt.regs)
+
+			if !reflect.DeepEqual(result, tt.expected) {
+				resultJSON, _ := json.MarshalIndent(result, "", "  ")
+				expectedJSON, _ := json.MarshalIndent(tt.expected, "", "  ")
+				t.Errorf("GroupDeviceRegisterWithLogicalContinuity() = \n%s\nwant = \n%s", resultJSON, expectedJSON)
+			}
+		})
+	}
+}
 func TestDeviceRegister_DecodeValue_uint16(t *testing.T) {
 	val := uint16(12345)
 	buf := make([]byte, 2)
