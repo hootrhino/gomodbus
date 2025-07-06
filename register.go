@@ -22,6 +22,8 @@ import (
 	"math"
 	"unsafe"
 )
+import "regexp"
+import "strconv"
 
 // DeviceRegister represents a Modbus register with metadata
 type DeviceRegister struct {
@@ -42,21 +44,111 @@ type DeviceRegister struct {
 	Status       string  `json:"status"`       // Status of the register (e.g., "OK", "Error")
 }
 
-// DecodeValue converts the raw bytes in the register to a typed value based on the DataType
+// parseArrayType parses DataType like "int16[2]" or "float32[]"
+func parseArrayType(dataType string) (baseType string, count int, isArray bool, autoLength bool) {
+	re := regexp.MustCompile(`^(\w+)\[(\d*)\]$`)
+	matches := re.FindStringSubmatch(dataType)
+	if len(matches) == 3 {
+		if matches[2] == "" {
+			return matches[1], 0, true, true
+		}
+		n, _ := strconv.Atoi(matches[2])
+		return matches[1], n, true, false
+	}
+	return dataType, 1, false, false
+}
 func (r DeviceRegister) DecodeValue() (DecodedValue, error) {
-	requiredBytes, err := getRequiredBytes(r.DataType)
+	baseType, count, isArray, autoLength := parseArrayType(r.DataType)
+	requiredBytesPerElement, err := getRequiredBytes(baseType)
 	if err != nil {
 		return DecodedValue{Raw: r.Value}, err
 	}
-	// For non-string, check length before reorder
-	if r.DataType != "string" && len(r.Value) < requiredBytes {
-		return DecodedValue{Raw: r.Value}, fmt.Errorf("not enough bytes for data type %s: have %d, need %d",
-			r.DataType, len(r.Value), requiredBytes)
-	}
-	bytes := reorderBytes(r.Value, r.DataOrder)
-	res := DecodedValue{Raw: bytes, Type: r.DataType}
 
-	switch r.DataType {
+	// Auto-calculate array length if needed
+	if autoLength {
+		totalBytes := int(r.ReadQuantity) * 2
+		count = totalBytes / requiredBytesPerElement
+		if count <= 0 {
+			return DecodedValue{Raw: r.Value}, fmt.Errorf("ReadQuantity %d too small for %s[]", r.ReadQuantity, baseType)
+		}
+	}
+
+	totalRequired := requiredBytesPerElement * count
+	if baseType != "string" && len(r.Value) < totalRequired {
+		return DecodedValue{Raw: r.Value}, fmt.Errorf("not enough bytes for %s[%d]: have %d, need %d",
+			baseType, count, len(r.Value), totalRequired)
+	}
+
+	res := DecodedValue{Raw: r.Value, Type: r.DataType}
+
+	if isArray {
+		var values []any
+		var sum float64
+
+		for i := 0; i < count; i++ {
+			offset := i * requiredBytesPerElement
+			if offset+requiredBytesPerElement > len(r.Value) {
+				return res, fmt.Errorf("not enough bytes for array element %d of %s", i, baseType)
+			}
+
+			// Reorder per element
+			elementBytes := reorderBytes(r.Value[offset:offset+requiredBytesPerElement], r.DataOrder)
+
+			var val any
+			switch baseType {
+			case "uint8", "byte":
+				val = elementBytes[0]
+			case "int8":
+				val = int8(elementBytes[0])
+			case "uint16":
+				val = binary.BigEndian.Uint16(elementBytes)
+			case "int16":
+				val = int16(binary.BigEndian.Uint16(elementBytes))
+			case "uint32":
+				val = binary.BigEndian.Uint32(elementBytes)
+			case "int32":
+				val = int32(binary.BigEndian.Uint32(elementBytes))
+			case "float32":
+				val = float32FromBits(binary.BigEndian.Uint32(elementBytes))
+			case "float64":
+				val = float64FromBits(binary.BigEndian.Uint64(elementBytes))
+			default:
+				return res, fmt.Errorf("unsupported array base type: %s", baseType)
+			}
+
+			values = append(values, val)
+
+			switch v := val.(type) {
+			case float64:
+				sum += v
+			case float32:
+				sum += float64(v)
+			case int:
+				sum += float64(v)
+			case int16:
+				sum += float64(v)
+			case uint16:
+				sum += float64(v)
+			case int32:
+				sum += float64(v)
+			case uint32:
+				sum += float64(v)
+			case int8:
+				sum += float64(v)
+			case uint8:
+				sum += float64(v)
+			}
+		}
+
+		res.AsType = values
+		res.Float64 = sum * r.Weight
+		return res, nil
+	}
+
+	// Non-array: reorder entire value
+	bytes := reorderBytes(r.Value, r.DataOrder)
+
+	switch baseType {
 	case "bitfield":
 		if len(bytes) < 2 {
 			return res, fmt.Errorf("not enough bytes for bitfield: need at least 2")
@@ -76,15 +168,9 @@ func (r DeviceRegister) DecodeValue() (DecodedValue, error) {
 			res.Float64 = 0.0
 		}
 	case "byte", "uint8":
-		if len(bytes) < 1 {
-			return res, fmt.Errorf("not enough bytes for %s: need at least 1", r.DataType)
-		}
 		res.AsType = bytes[0]
 		res.Float64 = float64(bytes[0]) * r.Weight
 	case "int8":
-		if len(bytes) < 1 {
-			return res, fmt.Errorf("not enough bytes for int8: need at least 1")
-		}
 		res.AsType = int8(bytes[0])
 		res.Float64 = float64(res.AsType.(int8)) * r.Weight
 	case "uint16":
@@ -104,13 +190,11 @@ func (r DeviceRegister) DecodeValue() (DecodedValue, error) {
 		res.AsType = val
 		res.Float64 = float64(val) * r.Weight
 	case "float32":
-		bits := binary.BigEndian.Uint32(bytes[:4])
-		v := float32FromBits(bits)
+		v := float32FromBits(binary.BigEndian.Uint32(bytes[:4]))
 		res.AsType = v
 		res.Float64 = float64(v) * r.Weight
 	case "float64":
-		bits := binary.BigEndian.Uint64(bytes[:8])
-		v := float64FromBits(bits)
+		v := float64FromBits(binary.BigEndian.Uint64(bytes[:8]))
 		res.AsType = v
 		res.Float64 = v * r.Weight
 	case "string":
@@ -119,6 +203,7 @@ func (r DeviceRegister) DecodeValue() (DecodedValue, error) {
 	default:
 		return res, fmt.Errorf("unsupported data type: %s", r.DataType)
 	}
+
 	return res, nil
 }
 

@@ -17,7 +17,12 @@ package modbus
 
 import (
 	"encoding/binary"
+	"encoding/csv"
 	"math"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -208,4 +213,97 @@ func TestDeviceRegister_DecodeValue_ByteOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+}
+
+func TestDecodeValueFromCSV(t *testing.T) {
+	file := filepath.Join("test", "register_test_cases.csv")
+	f, err := os.Open(file)
+	if err != nil {
+		t.Fatalf("failed to open CSV: %v", err)
+	}
+	defer f.Close()
+
+	r := csv.NewReader(f)
+	records, err := r.ReadAll()
+	if err != nil {
+		t.Fatalf("failed to read CSV: %v", err)
+	}
+
+	if len(records) < 2 {
+		t.Fatal("CSV should contain header and at least one data row")
+	}
+	header := records[0]
+	rows := records[1:]
+
+	for i, row := range rows {
+		r, err := parseDeviceRegisterRow(header, row)
+		if err != nil {
+			t.Errorf("row %d: failed to parse: %v", i+1, err)
+			continue
+		}
+		dv, err := r.DecodeValue()
+		if err != nil {
+			t.Errorf("row %d (%s): decode failed: %v", i+1, r.Tag, err)
+			continue
+		}
+		t.Logf("row %d (%s): decoded: %v", i+1, r.Tag, dv)
+	}
+}
+func parseDeviceRegisterRow(header, row []string) (DeviceRegister, error) {
+	m := make(map[string]string)
+	for i := range header {
+		if i < len(row) {
+			m[header[i]] = row[i]
+		}
+	}
+	parseUint8 := func(key string) uint8 {
+		v, _ := strconv.ParseUint(m[key], 10, 8)
+		return uint8(v)
+	}
+	parseUint16 := func(key string) uint16 {
+		v, _ := strconv.ParseUint(m[key], 10, 16)
+		return uint16(v)
+	}
+	parseUint64 := func(key string) uint64 {
+		v, _ := strconv.ParseUint(m[key], 10, 64)
+		return v
+	}
+	parseFloat64 := func(key string) float64 {
+		v, _ := strconv.ParseFloat(m[key], 64)
+		return v
+	}
+	parseBytes := func(key string) []byte {
+		raw := strings.TrimSpace(m[key])
+		raw = strings.Trim(raw, `"`) // strip quotes
+		if raw == "" {
+			return nil
+		}
+		parts := strings.Split(raw, ",")
+		var b []byte
+		for _, p := range parts {
+			n, err := strconv.Atoi(strings.TrimSpace(p))
+			if err != nil {
+				continue
+			}
+			b = append(b, byte(n))
+		}
+		return b
+	}
+
+	return DeviceRegister{
+		UUID:         m["uuid"],
+		Tag:          m["tag"],
+		Alias:        m["alias"],
+		SlaverId:     parseUint8("slaverId"),
+		Function:     parseUint8("function"),
+		ReadAddress:  parseUint16("readAddress"),
+		ReadQuantity: parseUint16("readQuantity"),
+		DataType:     m["dataType"],
+		DataOrder:    m["dataOrder"],
+		BitPosition:  parseUint16("bitPosition"),
+		BitMask:      parseUint16("bitMask"),
+		Weight:       parseFloat64("weight"),
+		Frequency:    parseUint64("frequency"),
+		Value:        parseBytes("value"),
+	}, nil
 }
