@@ -140,7 +140,7 @@ func (t *TCPTransporter) configureKeepAlive() {
 }
 
 // log writes a log message if logger is configured
-func (t *TCPTransporter) log(format string, v ...interface{}) {
+func (t *TCPTransporter) log(format string, v ...any) {
 	if t.logger != nil {
 		t.logger.Printf(format, v...)
 	}

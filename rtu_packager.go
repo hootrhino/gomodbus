@@ -239,8 +239,8 @@ func (p *RTUPackager) CompareCRCMethods(data []byte) (uint16, uint16, bool) {
 }
 
 // GetFrameInfo returns detailed information about a frame
-func (p *RTUPackager) GetFrameInfo(frame []byte) map[string]interface{} {
-	info := make(map[string]interface{})
+func (p *RTUPackager) GetFrameInfo(frame []byte) map[string]any {
+	info := make(map[string]any)
 
 	if len(frame) < 4 {
 		info["error"] = "frame too short"

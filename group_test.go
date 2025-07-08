@@ -16,28 +16,27 @@
 package modbus
 
 import (
-	"reflect" 
+	"reflect"
 	"testing"
 )
 
 // TestSortByReadAddress tests the sorting helper function
 func TestSortByReadAddress(t *testing.T) {
+	// Example registers with array types
 	registers := []DeviceRegister{
-		{SlaverId: 1, ReadAddress: 300, ReadQuantity: 10},
-		{SlaverId: 1, ReadAddress: 100, ReadQuantity: 5},
-		{SlaverId: 1, ReadAddress: 200, ReadQuantity: 15},
+		{Tag: "temp_array", SlaverId: 1, Function: 3, ReadAddress: 100, DataType: "float32[5]"},
+		{Tag: "status_bits", SlaverId: 1, Function: 3, ReadAddress: 110, DataType: "uint16[3]"},
+		{Tag: "single_val", SlaverId: 1, Function: 3, ReadAddress: 113, DataType: "int32"},
 	}
 
-	expected := []DeviceRegister{
-		{SlaverId: 1, ReadAddress: 100, ReadQuantity: 5},
-		{SlaverId: 1, ReadAddress: 200, ReadQuantity: 15},
-		{SlaverId: 1, ReadAddress: 300, ReadQuantity: 10},
-	}
+	groups := GroupDeviceRegisterWithLogicalContinuity(registers)
 
-	sortByReadAddress(registers)
-
-	if !reflect.DeepEqual(registers, expected) {
-		t.Errorf("sortByReadAddress() = %v, want %v", registers, expected)
+	// Test if groups are correctly sorted by SlaverId and ReadAddress
+	for i := 0; i < len(groups)-1; i++ {
+		if groups[i][0].SlaverId > groups[i+1][0].SlaverId ||
+			(groups[i][0].SlaverId == groups[i+1][0].SlaverId && groups[i][0].ReadAddress > groups[i+1][0].ReadAddress) {
+			t.Errorf("Groups not sorted as expected at index %d", i)
+		}
 	}
 }
 

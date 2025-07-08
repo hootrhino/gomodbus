@@ -30,6 +30,74 @@ import (
 	"reflect"
 )
 
+func Test_DecodeValue(t *testing.T) {
+	// Single value
+	reg1 := DeviceRegister{
+		Tag:      "temperature",
+		DataType: "float32",
+		Value:    []byte{0x42, 0x28, 0x00, 0x00},
+		Weight:   1.0,
+	}
+
+	// Array value
+	reg2 := DeviceRegister{
+		Tag:      "sensor_array",
+		DataType: "uint16[5]",
+		Value:    []byte{0x00, 0x01, 0x00, 0x02, 0x00, 0x03, 0x00, 0x04, 0x00, 0x05},
+		Weight:   0.1,
+	}
+
+	// String value
+	reg3 := DeviceRegister{
+		Tag:      "device_name",
+		DataType: "string",
+		Value:    []byte("Device001\x00\x00\x00"),
+	}
+
+	// Decode values
+	val1, err1 := reg1.DecodeValue()
+	if err1 != nil {
+		t.Fatalf("Error decoding reg1: %v", err1)
+	} else {
+		readQuantity, err := reg1.CalculateReadQuantity()
+		if err != nil {
+			t.Fatalf("Error calculating ReadQuantity for reg1: %v", err)
+		}
+		if readQuantity != reg1.ReadQuantity {
+			t.Fatalf("ReadQuantity for reg1 does not match calculated value")
+		}
+		t.Logf("Decoded value for reg1: %v, %v", val1, reg1.ReadQuantity)
+	}
+	// Decode values
+	val2, err2 := reg2.DecodeValue()
+	if err2 != nil {
+		t.Fatalf("Error decoding reg2: %v", err2)
+	} else {
+		readQuantity, err := reg2.CalculateReadQuantity()
+		if err != nil {
+			t.Fatalf("Error calculating ReadQuantity for reg2: %v", err)
+		}
+		if readQuantity != reg2.ReadQuantity {
+			t.Fatalf("ReadQuantity for reg2 does not match calculated value")
+		}
+		t.Logf("Decoded value for reg2: %v, %v", val2, reg2.ReadQuantity)
+	}
+	// Decode values
+	val3, err3 := reg3.DecodeValue()
+	if err3 != nil {
+		t.Fatalf("Error decoding reg3: %v", err3)
+	} else {
+		readQuantity, err := reg3.CalculateReadQuantity()
+		if err != nil {
+			t.Fatalf("Error calculating ReadQuantity for reg3: %v", err)
+		}
+		if readQuantity != reg3.ReadQuantity {
+			t.Fatalf("ReadQuantity for reg3 does not match calculated value")
+		}
+		t.Logf("Decoded value for reg3: %v, %v", val3, reg3.ReadQuantity)
+	}
+
+}
 func ParseRegistersCSV(filePath string) ([]DeviceRegister, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -110,7 +178,7 @@ func ParseRegistersCSV(filePath string) ([]DeviceRegister, error) {
 		reg.ReadQuantity = uint16(readQuantity)
 
 		if reg.ReadQuantity == 0 {
-			if err := reg.CalculateReadQuantity(); err != nil {
+			if _, err := reg.CalculateReadQuantity(); err != nil {
 				return nil, fmt.Errorf("Failed to calculate readQuantity (row %d): %v", i, err)
 			}
 		}

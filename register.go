@@ -35,231 +35,343 @@ type DeviceRegister struct {
 	Function     uint8   `json:"function"`     // Modbus function code (e.g., 3 for Read Holding Registers)
 	ReadAddress  uint16  `json:"readAddress"`  // Address of the register in the Modbus device
 	ReadQuantity uint16  `json:"readQuantity"` // Number of registers to read/write
-	DataType     string  `json:"dataType"`     // Data type of the register value (e.g., uint16, int32, float32, string)
+	DataType     string  `json:"dataType"`     // Data type of the register value (e.g., uint16, int32, float32,uint16[1], int32[2], float32[6] ...)
 	DataOrder    string  `json:"dataOrder"`    // Byte order for multi-byte values (e.g., ABCD, DCBA)
 	BitPosition  uint16  `json:"bitPosition"`  // Bit position for bit-level operations (e.g., 0, 1, 2)
 	BitMask      uint16  `json:"bitMask"`      // Bitmask for bit-level operations (e.g., 0x01, 0x02)
 	Weight       float64 `json:"weight"`       // Scaling factor for the register value
 	Frequency    uint64  `json:"frequency"`    // Polling frequency in milliseconds
 	Value        []byte  `json:"value"`        // Raw value of the register as a byte array (variable length)
-	Status       string  `json:"status"`       // Status of the register (e.g., "OK", "Error")
+	Status       string  `json:"status"`       // Status of the register (e.g., "OK", "ERROR:Reason Msg")
 }
 
 // CalculateReadQuantity calculates the ReadQuantity based on the DataType
-func (r *DeviceRegister) CalculateReadQuantity() error {
+func (r *DeviceRegister) CalculateReadQuantity() (uint16, error) {
 	baseType, count, err := parseArrayType(r.DataType)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	requiredBytesPerElement, err := getRequiredBytes(baseType)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	// Calculate required number of registers (each register is 2 bytes)
 	r.ReadQuantity = uint16(count * (requiredBytesPerElement / 2))
-	return nil
+	return r.ReadQuantity, nil
 }
 
-// parseArrayType parses the data type string and returns the base type and array length
+// DecodeValue decodes the raw register value based on its data type
+// Supports both single values and arrays (e.g., uint16[10], float32[5])
+func (r DeviceRegister) DecodeValue() (DecodedValue, error) {
+	// Initialize result with raw value
+	result := DecodedValue{
+		Raw:  r.Value,
+		Type: r.DataType,
+	}
+
+	// Handle empty value case
+	if len(r.Value) == 0 {
+		return result, fmt.Errorf("empty value for register %s", r.Tag)
+	}
+
+	// Parse data type to get base type and count
+	baseType, count, err := parseArrayType(r.DataType)
+	if err != nil {
+		return result, fmt.Errorf("invalid data type %s for register %s: %w", r.DataType, r.Tag, err)
+	}
+
+	// Get required bytes per element
+	requiredBytesPerElement, err := getRequiredBytes(baseType)
+	if err != nil {
+		return result, fmt.Errorf("unsupported base type %s for register %s: %w", baseType, r.Tag, err)
+	}
+
+	// Auto-calculate array length if needed
+	if count == 0 {
+		if requiredBytesPerElement == 0 {
+			return result, fmt.Errorf("cannot auto-calculate array length for variable-length type %s", baseType)
+		}
+		totalBytes := int(r.ReadQuantity) * 2 // Each register is 2 bytes
+		count = totalBytes / requiredBytesPerElement
+		if count <= 0 {
+			return result, fmt.Errorf("ReadQuantity %d too small for %s[] (need at least %d bytes)",
+				r.ReadQuantity, baseType, requiredBytesPerElement)
+		}
+	}
+
+	// Validate data length for non-string types
+	if baseType != "string" {
+		totalRequired := requiredBytesPerElement * count
+		if len(r.Value) < totalRequired {
+			return result, fmt.Errorf("insufficient data for %s[%d]: have %d bytes, need %d",
+				baseType, count, len(r.Value), totalRequired)
+		}
+	}
+
+	// Handle array types
+	if count > 1 {
+		return r.decodeArrayValue(result, baseType, count, requiredBytesPerElement)
+	}
+
+	// Handle single value types
+	return r.decodeSingleValue(result, baseType)
+}
+
+// decodeArrayValue handles decoding of array types
+func (r DeviceRegister) decodeArrayValue(result DecodedValue, baseType string, count, bytesPerElement int) (DecodedValue, error) {
+	values := make([]any, 0, count)
+	var sum float64
+
+	for i := 0; i < count; i++ {
+		offset := i * bytesPerElement
+
+		// Bounds check
+		if offset+bytesPerElement > len(r.Value) {
+			return result, fmt.Errorf("array element %d out of bounds for %s[%d]", i, baseType, count)
+		}
+
+		// Get element bytes and reorder if necessary
+		elementBytes := r.Value[offset : offset+bytesPerElement]
+		if len(elementBytes) > 1 {
+			elementBytes = reorderBytes(elementBytes, r.DataOrder)
+		}
+
+		// Decode element based on base type
+		val, err := r.decodeElementValue(elementBytes, baseType)
+		if err != nil {
+			return result, fmt.Errorf("failed to decode array element %d: %w", i, err)
+		}
+
+		values = append(values, val)
+		sum += convertToFloat64(val)
+	}
+
+	result.AsType = values
+	result.Float64 = sum * r.Weight
+	return result, nil
+}
+
+// decodeSingleValue handles decoding of single value types
+func (r DeviceRegister) decodeSingleValue(result DecodedValue, baseType string) (DecodedValue, error) {
+	// Reorder bytes if necessary
+	bytes := r.Value
+	if len(bytes) > 1 {
+		bytes = reorderBytes(bytes, r.DataOrder)
+	}
+
+	// Handle special cases first
+	switch baseType {
+	case "bitfield":
+		return r.decodeBitfield(result, bytes)
+	case "bool":
+		return r.decodeBool(result, bytes)
+	case "string":
+		return r.decodeString(result, bytes)
+	}
+
+	// Handle numeric types
+	val, err := r.decodeElementValue(bytes, baseType)
+	if err != nil {
+		return result, err
+	}
+
+	result.AsType = val
+	result.Float64 = convertToFloat64(val) * r.Weight
+	return result, nil
+}
+
+// decodeElementValue decodes a single element of the given base type
+func (r DeviceRegister) decodeElementValue(bytes []byte, baseType string) (any, error) {
+	switch baseType {
+	case "byte", "uint8":
+		if len(bytes) < 1 {
+			return nil, fmt.Errorf("insufficient bytes for %s: need 1, have %d", baseType, len(bytes))
+		}
+		return bytes[0], nil
+
+	case "int8":
+		if len(bytes) < 1 {
+			return nil, fmt.Errorf("insufficient bytes for %s: need 1, have %d", baseType, len(bytes))
+		}
+		return int8(bytes[0]), nil
+
+	case "uint16":
+		if len(bytes) < 2 {
+			return nil, fmt.Errorf("insufficient bytes for %s: need 2, have %d", baseType, len(bytes))
+		}
+		return binary.BigEndian.Uint16(bytes), nil
+
+	case "int16":
+		if len(bytes) < 2 {
+			return nil, fmt.Errorf("insufficient bytes for %s: need 2, have %d", baseType, len(bytes))
+		}
+		return int16(binary.BigEndian.Uint16(bytes)), nil
+
+	case "uint32":
+		if len(bytes) < 4 {
+			return nil, fmt.Errorf("insufficient bytes for %s: need 4, have %d", baseType, len(bytes))
+		}
+		return binary.BigEndian.Uint32(bytes), nil
+
+	case "int32":
+		if len(bytes) < 4 {
+			return nil, fmt.Errorf("insufficient bytes for %s: need 4, have %d", baseType, len(bytes))
+		}
+		return int32(binary.BigEndian.Uint32(bytes)), nil
+
+	case "uint64":
+		if len(bytes) < 8 {
+			return nil, fmt.Errorf("insufficient bytes for %s: need 8, have %d", baseType, len(bytes))
+		}
+		return binary.BigEndian.Uint64(bytes), nil
+
+	case "int64":
+		if len(bytes) < 8 {
+			return nil, fmt.Errorf("insufficient bytes for %s: need 8, have %d", baseType, len(bytes))
+		}
+		return int64(binary.BigEndian.Uint64(bytes)), nil
+
+	case "float32":
+		if len(bytes) < 4 {
+			return nil, fmt.Errorf("insufficient bytes for %s: need 4, have %d", baseType, len(bytes))
+		}
+		return float32FromBits(binary.BigEndian.Uint32(bytes)), nil
+
+	case "float64":
+		if len(bytes) < 8 {
+			return nil, fmt.Errorf("insufficient bytes for %s: need 8, have %d", baseType, len(bytes))
+		}
+		return float64FromBits(binary.BigEndian.Uint64(bytes)), nil
+
+	default:
+		return nil, fmt.Errorf("unsupported element type: %s", baseType)
+	}
+}
+
+// decodeBitfield handles bitfield decoding
+func (r DeviceRegister) decodeBitfield(result DecodedValue, bytes []byte) (DecodedValue, error) {
+	if len(bytes) < 2 {
+		return result, fmt.Errorf("insufficient bytes for bitfield: need 2, have %d", len(bytes))
+	}
+
+	val := binary.BigEndian.Uint16(bytes[:2]) & r.BitMask
+	result.AsType = val
+	result.Float64 = float64(val) * r.Weight
+	return result, nil
+}
+
+// decodeBool handles boolean decoding
+func (r DeviceRegister) decodeBool(result DecodedValue, bytes []byte) (DecodedValue, error) {
+	if len(bytes) < 2 {
+		return result, fmt.Errorf("insufficient bytes for bool: need 2, have %d", len(bytes))
+	}
+
+	val := binary.BigEndian.Uint16(bytes[:2])
+	b := CheckBit(val, r.BitPosition)
+	result.AsType = b
+	result.Float64 = 0.0
+	if b {
+		result.Float64 = 1.0
+	}
+	return result, nil
+}
+
+// decodeString handles string decoding
+func (r DeviceRegister) decodeString(result DecodedValue, bytes []byte) (DecodedValue, error) {
+	// Remove null terminators and trim whitespace
+	str := string(bytes)
+	if nullIndex := strings.IndexByte(str, 0); nullIndex != -1 {
+		str = str[:nullIndex]
+	}
+	str = strings.TrimSpace(str)
+
+	result.AsType = str
+	result.Float64 = 0.0
+	return result, nil
+}
+
+// convertToFloat64 converts various numeric types to float64 for summation
+func convertToFloat64(val any) float64 {
+	switch v := val.(type) {
+	case uint8:
+		return float64(v)
+	case int8:
+		return float64(v)
+	case uint16:
+		return float64(v)
+	case int16:
+		return float64(v)
+	case uint32:
+		return float64(v)
+	case int32:
+		return float64(v)
+	case uint64:
+		return float64(v)
+	case int64:
+		return float64(v)
+	case float32:
+		return float64(v)
+	case float64:
+		return v
+	default:
+		return 0.0
+	}
+}
+
+// Enhanced getRequiredBytes with support for more types
+func getRequiredBytes(dataType string) (int, error) {
+	switch dataType {
+	case "byte", "uint8", "int8":
+		return 1, nil
+	case "bool", "bitfield", "uint16", "int16":
+		return 2, nil
+	case "uint32", "int32", "float32":
+		return 4, nil
+	case "uint64", "int64", "float64":
+		return 8, nil
+	case "string":
+		// String type has variable length
+		return 0, nil
+	default:
+		return 0, fmt.Errorf("unknown data type: %s", dataType)
+	}
+}
+
+// Enhanced parseArrayType with better error handling
 func parseArrayType(dataType string) (string, int, error) {
+	dataType = strings.TrimSpace(dataType)
+
+	// Check for empty data type
+	if dataType == "" {
+		return "", 0, fmt.Errorf("empty data type")
+	}
+
 	// Check if it's an array type
 	if strings.Contains(dataType, "[") && strings.Contains(dataType, "]") {
-		// Extract base type and array length
+		// Use regex to extract base type and array length
 		re := regexp.MustCompile(`^(\w+)\[(\d+)\]$`)
 		matches := re.FindStringSubmatch(dataType)
 		if len(matches) != 3 {
-			return "", 0, fmt.Errorf("invalid array type format: %s", dataType)
+			return "", 0, fmt.Errorf("invalid array type format: %s (expected format: type[count])", dataType)
 		}
 
 		baseType := matches[1]
 		count, err := strconv.Atoi(matches[2])
 		if err != nil {
-			return "", 0, fmt.Errorf("invalid array length in type: %s", dataType)
+			return "", 0, fmt.Errorf("invalid array length in type %s: %w", dataType, err)
+		}
+
+		if count < 0 {
+			return "", 0, fmt.Errorf("negative array length in type %s: %d", dataType, count)
 		}
 
 		return baseType, count, nil
 	}
 
-	// Not an array type, return base type and length 1
+	// Not an array type, return base type with count 1
 	return dataType, 1, nil
-}
-func (r DeviceRegister) DecodeValue() (DecodedValue, error) {
-	// 只使用三个变量接收返回值
-	baseType, count, err := parseArrayType(r.DataType)
-	if err != nil {
-		return DecodedValue{Raw: r.Value}, err
-	}
-
-	requiredBytesPerElement, err := getRequiredBytes(baseType)
-	if err != nil {
-		return DecodedValue{Raw: r.Value}, err
-	}
-
-	// 自动计算数组长度
-	if count == 0 { // 假设 count=0 表示需要自动计算
-		totalBytes := int(r.ReadQuantity) * 2
-		count = totalBytes / requiredBytesPerElement
-		if count <= 0 {
-			return DecodedValue{Raw: r.Value}, fmt.Errorf("ReadQuantity %d too small for %s[]", r.ReadQuantity, baseType)
-		}
-	}
-
-	// 判断是否为数组类型
-	isArray := count > 1
-
-	totalRequired := requiredBytesPerElement * count
-	if baseType != "string" && len(r.Value) < totalRequired {
-		return DecodedValue{Raw: r.Value}, fmt.Errorf("not enough bytes for %s[%d]: have %d, need %d",
-			baseType, count, len(r.Value), totalRequired)
-	}
-
-	res := DecodedValue{Raw: r.Value, Type: r.DataType}
-
-	if isArray {
-		var values []any
-		var sum float64
-
-		for i := 0; i < count; i++ {
-			offset := i * requiredBytesPerElement
-			if offset+requiredBytesPerElement > len(r.Value) {
-				return res, fmt.Errorf("not enough bytes for array element %d of %s", i, baseType)
-			}
-
-			// Reorder per element
-			elementBytes := reorderBytes(r.Value[offset:offset+requiredBytesPerElement], r.DataOrder)
-
-			var val any
-			switch baseType {
-			case "uint8", "byte":
-				val = elementBytes[0]
-			case "int8":
-				val = int8(elementBytes[0])
-			case "uint16":
-				val = binary.BigEndian.Uint16(elementBytes)
-			case "int16":
-				val = int16(binary.BigEndian.Uint16(elementBytes))
-			case "uint32":
-				val = binary.BigEndian.Uint32(elementBytes)
-			case "int32":
-				val = int32(binary.BigEndian.Uint32(elementBytes))
-			case "float32":
-				val = float32FromBits(binary.BigEndian.Uint32(elementBytes))
-			case "float64":
-				val = float64FromBits(binary.BigEndian.Uint64(elementBytes))
-			default:
-				return res, fmt.Errorf("unsupported array base type: %s", baseType)
-			}
-
-			values = append(values, val)
-
-			switch v := val.(type) {
-			case float64:
-				sum += v
-			case float32:
-				sum += float64(v)
-			case int:
-				sum += float64(v)
-			case int16:
-				sum += float64(v)
-			case uint16:
-				sum += float64(v)
-			case int32:
-				sum += float64(v)
-			case uint32:
-				sum += float64(v)
-			case int8:
-				sum += float64(v)
-			case uint8:
-				sum += float64(v)
-			}
-		}
-
-		res.AsType = values
-		res.Float64 = sum * r.Weight
-		return res, nil
-	}
-
-	// Non-array: reorder entire value
-	bytes := reorderBytes(r.Value, r.DataOrder)
-
-	switch baseType {
-	case "bitfield":
-		if len(bytes) < 2 {
-			return res, fmt.Errorf("not enough bytes for bitfield: need at least 2")
-		}
-		val := binary.BigEndian.Uint16(bytes[:2]) & r.BitMask
-		res.AsType = val
-		res.Float64 = float64(val) * r.Weight
-	case "bool":
-		if len(bytes) < 2 {
-			return res, fmt.Errorf("not enough bytes for bool: need at least 2")
-		}
-		val := binary.BigEndian.Uint16(bytes[:2])
-		b := CheckBit(val, r.BitPosition)
-		res.AsType = b
-		res.Float64 = 1.0
-		if !b {
-			res.Float64 = 0.0
-		}
-	case "byte", "uint8":
-		res.AsType = bytes[0]
-		res.Float64 = float64(bytes[0]) * r.Weight
-	case "int8":
-		res.AsType = int8(bytes[0])
-		res.Float64 = float64(res.AsType.(int8)) * r.Weight
-	case "uint16":
-		val := binary.BigEndian.Uint16(bytes[:2])
-		res.AsType = val
-		res.Float64 = float64(val) * r.Weight
-	case "int16":
-		val := int16(binary.BigEndian.Uint16(bytes[:2]))
-		res.AsType = val
-		res.Float64 = float64(val) * r.Weight
-	case "uint32":
-		val := binary.BigEndian.Uint32(bytes[:4])
-		res.AsType = val
-		res.Float64 = float64(val) * r.Weight
-	case "int32":
-		val := int32(binary.BigEndian.Uint32(bytes[:4]))
-		res.AsType = val
-		res.Float64 = float64(val) * r.Weight
-	case "float32":
-		v := float32FromBits(binary.BigEndian.Uint32(bytes[:4]))
-		res.AsType = v
-		res.Float64 = float64(v) * r.Weight
-	case "float64":
-		v := float64FromBits(binary.BigEndian.Uint64(bytes[:8]))
-		res.AsType = v
-		res.Float64 = v * r.Weight
-	case "string":
-		res.AsType = string(bytes)
-		res.Float64 = 0
-	default:
-		return res, fmt.Errorf("unsupported data type: %s", r.DataType)
-	}
-
-	return res, nil
-}
-
-// getRequiredBytes returns the number of bytes required for a given data type
-func getRequiredBytes(dataType string) (int, error) {
-	switch dataType {
-	case "bitfield", "bool", "uint16", "int16":
-		return 2, nil
-	case "uint32", "int32", "float32":
-		return 4, nil
-	case "uint64", "float64":
-		return 8, nil
-	case "byte", "uint8", "int8":
-		return 1, nil
-	case "string":
-		// String type can have variable length
-		return 0, nil
-	default:
-		return 0, fmt.Errorf("unknown data type: %s", dataType)
-	}
 }
 
 // Encode Bytes

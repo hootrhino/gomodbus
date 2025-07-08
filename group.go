@@ -22,77 +22,154 @@ import (
 	"sync"
 )
 
+// GroupDeviceRegisterWithLogicalContinuity groups device registers by slave ID and logical continuity
+// with support for array data types. It automatically calculates ReadQuantity for registers
+// that don't have it set, including proper handling of array types like uint16[10], float32[5], etc.
 func GroupDeviceRegisterWithLogicalContinuity(registers []DeviceRegister) [][]DeviceRegister {
 	if len(registers) == 0 {
 		return [][]DeviceRegister{}
 	}
 
+	// Create a copy to avoid modifying the original slice
 	regsCopy := make([]DeviceRegister, len(registers))
 	copy(regsCopy, registers)
 
+	// Calculate ReadQuantity for registers that need it, including array types
 	for i := range regsCopy {
 		if regsCopy[i].ReadQuantity == 0 {
-			if err := regsCopy[i].CalculateReadQuantity(); err != nil {
+			if readQuantity, err := regsCopy[i].CalculateReadQuantity(); err != nil {
+				// Log error but continue processing other registers
+				fmt.Printf("Warning: Failed to calculate ReadQuantity for register %s: %v\n", regsCopy[i].Tag, err)
 				continue
+			} else {
+				regsCopy[i].ReadQuantity = readQuantity
 			}
 		}
 	}
 
+	// Group registers by slave ID first
 	slaverGroups := make(map[uint8][]DeviceRegister)
 	for _, reg := range regsCopy {
+		// Skip registers with invalid ReadQuantity
+		if reg.ReadQuantity == 0 {
+			fmt.Printf("Warning: Skipping register %s with ReadQuantity=0\n", reg.Tag)
+			continue
+		}
 		slaverGroups[reg.SlaverId] = append(slaverGroups[reg.SlaverId], reg)
 	}
 
 	result := make([][]DeviceRegister, 0, len(slaverGroups))
 
+	// Process each slave group
 	for _, regs := range slaverGroups {
 		if len(regs) == 0 {
 			continue
 		}
 
+		// Sort registers by function code first, then by read address
 		sort.Slice(regs, func(i, j int) bool {
+			if regs[i].Function != regs[j].Function {
+				return regs[i].Function < regs[j].Function
+			}
 			return regs[i].ReadAddress < regs[j].ReadAddress
 		})
 
-		currentGroup := []DeviceRegister{regs[0]}
+		// Group by function code and logical continuity
+		functionGroups := make(map[uint8][]DeviceRegister)
+		for _, reg := range regs {
+			functionGroups[reg.Function] = append(functionGroups[reg.Function], reg)
+		}
 
-		for i := 1; i < len(regs); i++ {
-			prev := regs[i-1]
-			curr := regs[i]
-
-			if prev.ReadQuantity == 0 {
-				result = append(result, currentGroup)
-				currentGroup = []DeviceRegister{curr}
+		// Process each function group separately
+		for _, funcRegs := range functionGroups {
+			if len(funcRegs) == 0 {
 				continue
 			}
 
-			if curr.ReadAddress == prev.ReadAddress+prev.ReadQuantity {
-				currentGroup = append(currentGroup, curr)
-			} else {
+			// Sort by read address within function group
+			sort.Slice(funcRegs, func(i, j int) bool {
+				return funcRegs[i].ReadAddress < funcRegs[j].ReadAddress
+			})
+
+			// Group by logical continuity
+			currentGroup := []DeviceRegister{funcRegs[0]}
+
+			for i := 1; i < len(funcRegs); i++ {
+				prev := funcRegs[i-1]
+				curr := funcRegs[i]
+
+				// Check if current register is logically continuous with previous
+				expectedNextAddress := prev.ReadAddress + prev.ReadQuantity
+
+				if curr.ReadAddress == expectedNextAddress {
+					// Check if adding this register would exceed Modbus limits
+					if canAddToGroup(currentGroup, curr) {
+						currentGroup = append(currentGroup, curr)
+					} else {
+						// Start new group if limits would be exceeded
+						result = append(result, currentGroup)
+						currentGroup = []DeviceRegister{curr}
+					}
+				} else {
+					// Address gap found, start new group
+					result = append(result, currentGroup)
+					currentGroup = []DeviceRegister{curr}
+				}
+			}
+
+			// Add the last group
+			if len(currentGroup) > 0 {
 				result = append(result, currentGroup)
-				currentGroup = []DeviceRegister{curr}
 			}
 		}
-
-		if len(currentGroup) > 0 {
-			result = append(result, currentGroup)
-		}
 	}
+
+	// Sort result groups for consistent output
+	sort.Slice(result, func(i, j int) bool {
+		if len(result[i]) == 0 || len(result[j]) == 0 {
+			return len(result[i]) > len(result[j])
+		}
+
+		groupI := result[i][0]
+		groupJ := result[j][0]
+
+		if groupI.SlaverId != groupJ.SlaverId {
+			return groupI.SlaverId < groupJ.SlaverId
+		}
+		if groupI.Function != groupJ.Function {
+			return groupI.Function < groupJ.Function
+		}
+		return groupI.ReadAddress < groupJ.ReadAddress
+	})
 
 	return result
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
+// canAddToGroup checks if adding a register to a group would exceed Modbus protocol limits
+func canAddToGroup(group []DeviceRegister, newReg DeviceRegister) bool {
+	if len(group) == 0 {
+		return true
 	}
-	return b
-}
 
-func sortByReadAddress(regs []DeviceRegister) {
-	sort.SliceStable(regs, func(i, j int) bool {
-		return regs[i].ReadAddress < regs[j].ReadAddress
-	})
+	// Calculate total quantity if we add the new register
+	totalQuantity := uint16(0)
+	for _, reg := range group {
+		totalQuantity += reg.ReadQuantity
+	}
+	totalQuantity += newReg.ReadQuantity
+
+	// Check Modbus protocol limits based on function code
+	switch newReg.Function {
+	case 1, 2: // Read Coils, Read Discrete Inputs
+		// Maximum 2000 bits per request
+		return totalQuantity <= 2000
+	case 3, 4: // Read Holding Registers, Read Input Registers
+		// Maximum 125 registers per request
+		return totalQuantity <= 125
+	default:
+		// Conservative limit for unknown function codes
+		return totalQuantity <= 125
+	}
 }
 
 func readGroup(client ModbusApi, group []DeviceRegister) ([]DeviceRegister, error) {
@@ -106,7 +183,7 @@ func readGroup(client ModbusApi, group []DeviceRegister) ([]DeviceRegister, erro
 		totalQuantity += reg.ReadQuantity
 	}
 
-	var data interface{}
+	var data any
 	var err error
 	switch group[0].Function {
 	case 1:
@@ -133,7 +210,7 @@ func handleReadError(group []DeviceRegister, err error) ([]DeviceRegister, error
 	return group, fmt.Errorf("modbus read error (slave %d, addr %d): %w", group[0].SlaverId, group[0].ReadAddress, err)
 }
 
-func parseAndUpdateGroup(group []DeviceRegister, data interface{}) ([]DeviceRegister, error) {
+func parseAndUpdateGroup(group []DeviceRegister, data any) ([]DeviceRegister, error) {
 	offset := 0
 	for i := range group {
 		reg := &group[i]
