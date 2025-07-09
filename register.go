@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -121,7 +122,26 @@ func (r DeviceRegister) DecodeValue() (DecodedValue, error) {
 
 // decodeArrayValue handles decoding of array types
 func (r DeviceRegister) decodeArrayValue(result DecodedValue, baseType string, count, bytesPerElement int) (DecodedValue, error) {
-	values := make([]any, 0, count)
+	typeMap := map[string]reflect.Type{
+		"byte":    reflect.TypeOf(uint8(0)),
+		"uint8":   reflect.TypeOf(uint8(0)),
+		"int8":    reflect.TypeOf(int8(0)),
+		"uint16":  reflect.TypeOf(uint16(0)),
+		"int16":   reflect.TypeOf(int16(0)),
+		"uint32":  reflect.TypeOf(uint32(0)),
+		"int32":   reflect.TypeOf(int32(0)),
+		"uint64":  reflect.TypeOf(uint64(0)),
+		"int64":   reflect.TypeOf(int64(0)),
+		"float32": reflect.TypeOf(float32(0)),
+		"float64": reflect.TypeOf(float64(0)),
+	}
+
+	elemType, ok := typeMap[baseType]
+	if !ok {
+		return result, fmt.Errorf("unsupported base type: %s", baseType)
+	}
+
+	values := reflect.MakeSlice(reflect.SliceOf(elemType), 0, count)
 	var sum float64
 
 	for i := 0; i < count; i++ {
@@ -144,11 +164,11 @@ func (r DeviceRegister) decodeArrayValue(result DecodedValue, baseType string, c
 			return result, fmt.Errorf("failed to decode array element %d: %w", i, err)
 		}
 
-		values = append(values, val)
+		values = reflect.Append(values, reflect.ValueOf(val))
 		sum += convertToFloat64(val)
 	}
 
-	result.AsType = values
+	result.AsType = values.Interface()
 	result.Float64 = sum * r.Weight
 	return result, nil
 }
@@ -481,7 +501,7 @@ func (dv DecodedValue) GetFloat64Value(round int) float64 {
 
 // ToString returns the string representation of the DecodedValue
 func (dv DecodedValue) String() string {
-	return fmt.Sprintf("Raw: %v, Float64: %f, AsType: %v", dv.Raw, dv.Float64, dv.AsType)
+	return fmt.Sprintf("Raw: % X, Float64: %f, AsType: % X", dv.Raw, dv.Float64, dv.AsType)
 }
 
 // float32FromBits converts a uint32 to a float32

@@ -97,7 +97,9 @@ func (m *RegisterManager) LoadRegisters(registers []DeviceRegister) error {
 	tagMap := make(map[string]bool)
 	for _, register := range registers {
 		if tagMap[register.Tag] {
-			m.OnErrorCallback(fmt.Errorf("duplicate tag: %s", register.Tag))
+			if m.OnErrorCallback != nil {
+				m.OnErrorCallback(fmt.Errorf("duplicate tag: %s", register.Tag))
+			}
 			return fmt.Errorf("duplicate tag: %s", register.Tag)
 		}
 		tagMap[register.Tag] = true
@@ -150,6 +152,8 @@ func (m *RegisterManager) ReadGroupedData() {
 		}
 	}
 	for _, err := range errors {
-		m.OnErrorCallback(err)
+		if m.OnErrorCallback != nil {
+			m.OnErrorCallback(err)
+		}
 	}
 }
