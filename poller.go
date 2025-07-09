@@ -179,15 +179,15 @@ func (m *ModbusRegisterManager) Stop() {
 	m.Stream.Stop()
 }
 
-// ModbusDevicePoller manages periodic polling of multiple ModbusRegisterManagers
+// ModbusDevicePoller is responsible for polling Modbus registers at a specified interval.
 type ModbusDevicePoller struct {
-	managers []*ModbusRegisterManager // All managers to poll
-	interval time.Duration            // Polling interval
-	stopCh   chan struct{}            // Channel to signal stop
-	wg       sync.WaitGroup           // WaitGroup for polling goroutine
+	managers []*ModbusRegisterManager
+	interval time.Duration
+	stopCh   chan struct{}
+	wg       sync.WaitGroup
 }
 
-// NewModbusDevicePoller creates a new poller with a given interval
+// NewModbusDevicePoller creates a new ModbusDevicePoller with the given interval.
 func NewModbusDevicePoller(interval time.Duration) *ModbusDevicePoller {
 	return &ModbusDevicePoller{
 		interval: interval,
@@ -195,55 +195,50 @@ func NewModbusDevicePoller(interval time.Duration) *ModbusDevicePoller {
 	}
 }
 
-// AddManager adds a ModbusRegisterManager to the poller
+// AddManager adds a ModbusRegisterManager to the poller.
 func (dp *ModbusDevicePoller) AddManager(mgr *ModbusRegisterManager) {
 	dp.managers = append(dp.managers, mgr)
 }
 
-// Start begins periodic polling of all managers and dispatches data/errors
+// Start initiates the polling process.
 func (dp *ModbusDevicePoller) Start() {
 	for _, mgr := range dp.managers {
 		mgr.Start()
 	}
 	dp.wg.Add(1)
-	go func() {
-		defer dp.wg.Done()
-		ticker := time.NewTicker(dp.interval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-dp.stopCh:
-				return
-			case <-ticker.C:
-				var wg sync.WaitGroup
-				errCh := make(chan error, len(dp.managers))
-				for _, mgr := range dp.managers {
-					wg.Add(1)
-					go func(m *ModbusRegisterManager) {
-						defer wg.Done()
-						errs := m.ReadAndStream()
-						for _, err := range errs {
-							errCh <- err
-						}
-					}(mgr)
-				}
-				go func() {
-					wg.Wait()
-					close(errCh)
-				}()
-				for err := range errCh {
-					for _, mgr := range dp.managers {
-						if cb := mgr.Stream.onError.Load(); cb != nil {
-							cb.(OnErrorFunc)(err)
-						}
-					}
-				}
-			}
-		}
-	}()
+	go dp.poll()
 }
 
-// Stop signals the poller and all managers to stop polling and streaming
+// poll is a private method that runs the polling loop.
+func (dp *ModbusDevicePoller) poll() {
+	defer dp.wg.Done()
+	ticker := time.NewTicker(dp.interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-dp.stopCh:
+			return
+		case <-ticker.C:
+			dp.pollManagers()
+		}
+	}
+}
+
+// pollManagers reads and streams data from all registered managers.
+func (dp *ModbusDevicePoller) pollManagers() {
+	var wg sync.WaitGroup
+	for _, mgr := range dp.managers {
+		wg.Add(1)
+		go func(m *ModbusRegisterManager) {
+			defer wg.Done()
+			m.ReadAndStream()
+		}(mgr)
+	}
+	wg.Wait()
+}
+
+// Stop stops the polling process and cleans up resources.
 func (dp *ModbusDevicePoller) Stop() {
 	close(dp.stopCh)
 	dp.wg.Wait()
